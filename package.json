@@ -1,11 +1,11 @@
 {
   "name": "metamorph",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check index.js && node --check src/engine.js",
-    "test": "node test/engine.test.mjs",
-    "verify": "node --check index.js && node --check src/engine.js && node test/engine.test.mjs"
+    "check": "node --check index.js && node --check src/engine.js && node --check src/panel.js",
+    "test": "node test/engine.test.mjs && node test/panel.test.mjs",
+    "verify": "node --check index.js && node --check src/engine.js && node --check src/panel.js && node test/engine.test.mjs && node test/panel.test.mjs"
   }
 }
