@@ -7,7 +7,17 @@ export const DEFAULT_SETUP = Object.freeze({
     version: '1.0.0',
     schema_version: SCHEMA_VERSION,
     description: 'Track irreversible transformation progress through one ordered tier hierarchy.',
-    stats: [],
+    stats: [
+        {
+            key: 'progress',
+            label: 'Progress',
+            min: 0,
+            max: 30,
+            default: 0,
+            description: 'A distinct dimension of irreversible transformation progress.',
+            judge_guidance: 'Describe the concrete new changes that should increase this stat.',
+        },
+    ],
     tiers: [
         {
             id: 'tier_1',
@@ -105,7 +115,7 @@ export function validateSetup(input) {
         if (!setup[key]) addError(`$.${key}`, `${key} is required.`);
     }
 
-    if (!setup.stats.length) addWarning('$.stats', 'No stats are defined yet.');
+    if (!setup.stats.length) addError('$.stats', 'At least one tracked stat is required.');
     if (!setup.tiers.length) addError('$.tiers', 'At least one hierarchy tier is required.');
 
     const statKeys = new Set();
@@ -133,7 +143,7 @@ export function validateSetup(input) {
         if (tier.world_info_key) tierKeys.add(tier.world_info_key);
         validateConditions(tier.requires, `${path}.requires`, statKeys, addError);
         if (index === 0 && tier.requires.length) addWarning(`${path}.requires`, 'The first tier normally has no conditions so the hierarchy always has an active tier.');
-        if (index > 0 && !tier.requires.length) addWarning(`${path}.requires`, 'A later tier with no conditions will always override every earlier tier.');
+        if (index > 0 && !tier.requires.length) addError(`${path}.requires`, 'Every tier after the starting tier needs at least one condition.');
     });
 
     return { valid: errors.length === 0, errors, warnings, setup };

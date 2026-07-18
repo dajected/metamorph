@@ -47,6 +47,8 @@ let postReplyBusy = false;
 let lastFocusedBeforePanel = null;
 let legacySettingsMigrated = false;
 let legacyChatMigrated = false;
+let setupDraft = null;
+let setupDraftRoot = null;
 
 function cloneValue(value) {
     if (typeof structuredClone === 'function') return structuredClone(value);
@@ -55,7 +57,7 @@ function cloneValue(value) {
 
 async function loadEngine() {
     if (DEFAULT_SETUP) return;
-    const engine = await import('./src/engine.js?v=0.4.0');
+    const engine = await import('./src/engine.js?v=0.5.0');
     ({
         SCHEMA_VERSION,
         DEFAULT_SETUP,
@@ -203,6 +205,8 @@ async function startTracker(input = DEFAULT_SETUP, { confirmReplace = false } = 
         promptInjectionEnabled: sameScenario ? root.binding?.promptInjectionEnabled ?? true : true,
     };
     root.state = sameScenario ? normalizeState(root.state, setup) : initialState(setup);
+    setupDraft = clone(setup);
+    setupDraftRoot = root;
     await saveMetadata();
     await refreshPromptInjection();
     await renderAll();
@@ -217,6 +221,8 @@ async function stopTracker() {
     delete root.setup;
     delete root.binding;
     delete root.state;
+    setupDraft = null;
+    setupDraftRoot = root;
     await saveMetadata();
     await refreshPromptInjection();
     await renderAll();
@@ -302,30 +308,74 @@ function savedSetupOptionsHtml() {
     return (getSettings().savedSetups || []).map((entry) => `<option value="${sanitizeHtml(entry.id)}">${sanitizeHtml(entry.name)} · ${sanitizeHtml(entry.setup?.version || '')}</option>`).join('');
 }
 
+function ensureSetupDraft(setup = getSetup()) {
+    const root = getRoot(false);
+    if (!setup) {
+        setupDraft = null;
+        setupDraftRoot = root;
+        return null;
+    }
+    if (!setupDraft || setupDraftRoot !== root) {
+        setupDraft = clone(setup);
+        setupDraftRoot = root;
+    }
+    return setupDraft;
+}
+
+function newStat() {
+    const number = (setupDraft?.stats?.length || 0) + 1;
+    return {
+        key: `stat_${number}`,
+        label: `Stat ${number}`,
+        min: 0,
+        max: 30,
+        default: 0,
+        description: '',
+        judge_guidance: '',
+    };
+}
+
+function newTier() {
+    const number = (setupDraft?.tiers?.length || 0) + 1;
+    const previous = setupDraft?.tiers?.at(-1);
+    const previousThresholds = new Map((previous?.requires || []).map((condition) => [condition.stat, Number(condition.value)]));
+    return {
+        id: `tier_${number}`,
+        label: `Tier ${number}`,
+        description: '',
+        world_info_key: `METAMORPH_TIER_${number}`,
+        requires: (setupDraft?.stats || []).map((stat) => ({
+            stat: stat.key,
+            op: '>=',
+            value: (previousThresholds.get(stat.key) ?? Number(stat.default) ?? 0) + 10,
+        })),
+    };
+}
+
 function renderSettings(validation = null) {
     if (!settingsEl) return;
     const settings = getSettings();
     const setup = getSetup();
+    ensureSetupDraft(setup);
     const savedOptions = savedSetupOptionsHtml();
     settingsEl.innerHTML = `
         <div class="mm-settings inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header"><b>${EXTENSION_NAME}</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>
             <div class="inline-drawer-content">
-                <section class="mm-settings-section">
-                    <h4>Global settings</h4>
+                <details class="mm-settings-section mm-settings-collapsible">
+                    <summary>Judge and extension settings</summary>
                     <label class="mm-check"><input id="mm-enabled" type="checkbox" ${settings.enabled ? 'checked' : ''}><span>Enabled</span></label>
                     <label>Helper judge connection profile<select id="mm-helper-profile">${profileOptionsHtml()}</select></label>
                     <button id="mm-refresh-profiles" type="button">Refresh connection profiles</button>
                     <label class="mm-check"><input id="mm-judge-default" type="checkbox" ${settings.judgeEnabledByDefault ? 'checked' : ''}><span>Judge enabled by default</span></label>
                     <label>Context injection<select id="mm-prompt-mode"><option value="compact" ${settings.promptInjectionMode === 'compact' ? 'selected' : ''}>on</option><option value="off" ${settings.promptInjectionMode === 'off' ? 'selected' : ''}>off</option></select></label>
                     <label class="mm-check"><input id="mm-debug" type="checkbox" ${settings.debugMode ? 'checked' : ''}><span>Debug mode</span></label>
-                    <div class="mm-row"><button id="mm-export-all" type="button">Export all data</button><button id="mm-import-all" type="button">Import all data</button><button id="mm-reset-settings" class="mm-danger" type="button">Reset extension settings</button></div>
-                </section>
+                    <button id="mm-reset-settings" class="mm-danger" type="button">Reset extension settings</button>
+                </details>
                 <section class="mm-settings-section">
                     <h4>Setup library</h4>
-                    <label>Search saved setups<input id="mm-library-search" type="search" placeholder="Name or ID"></label>
-                    <div class="mm-row"><select id="mm-library-select">${savedOptions || '<option value="">No saved setups</option>'}</select><button id="mm-library-load" type="button" ${savedOptions ? '' : 'disabled'}>Load</button><button id="mm-library-duplicate" type="button" ${savedOptions ? '' : 'disabled'}>Duplicate</button><button id="mm-library-export" type="button" ${savedOptions ? '' : 'disabled'}>Export</button><button id="mm-library-delete" class="mm-danger" type="button" ${savedOptions ? '' : 'disabled'}>Delete</button></div>
-                    <div class="mm-row"><button id="mm-start-blank" type="button">Start blank tracker</button><button id="mm-import-setup" type="button">Import setup file</button></div>
+                    <div class="mm-library-row"><select id="mm-library-select" aria-label="Saved setup">${savedOptions || '<option value="">No saved setups</option>'}</select><button id="mm-library-load" type="button" ${savedOptions ? '' : 'disabled'}>Load</button><button id="mm-library-delete" class="mm-danger" type="button" ${savedOptions ? '' : 'disabled'}>Delete</button></div>
+                    <div class="mm-row"><button id="mm-start-blank" type="button">New blank setup</button><button id="mm-import-setup" type="button">Import JSON</button>${setup ? '<button id="mm-export-setup" type="button">Export current</button>' : ''}</div>
                 </section>
                 ${setupEditorHtml(setup, validation)}
             </div>
@@ -334,24 +384,56 @@ function renderSettings(validation = null) {
 }
 
 function setupEditorHtml(setup, validation) {
-    if (!setup) return '<section class="mm-settings-section"><h4>Setup editor</h4><div class="mm-muted">Start or load a tracker to edit its setup.</div></section>';
+    if (!setup || !setupDraft) return '<section class="mm-settings-section"><h4>Tracker setup</h4><div class="mm-muted">Create a blank setup, load one from the library, or import JSON.</div></section>';
     return `
         <section class="mm-settings-section" id="mm-scenario-editor">
-            <h4>Setup editor</h4>
-            <div class="mm-muted">Define monotonic stats and one ordered tier hierarchy. Later tiers become active when every condition is met.</div>
-            <div class="mm-field-grid">
-                <label>Name<input id="mm-setup-name" value="${sanitizeHtml(setup.name)}"></label>
-                <label>ID<input id="mm-setup-id" value="${sanitizeHtml(setup.id)}"></label>
-                <label>Version<input id="mm-setup-version" value="${sanitizeHtml(setup.version)}"></label>
-            </div>
-            <label>Description<textarea id="mm-setup-description">${sanitizeHtml(setup.description || '')}</textarea></label>
-            <label>Judge guidance<textarea id="mm-setup-judge-guidance">${sanitizeHtml(setup.judge?.prompt_guidance || '')}</textarea></label>
-            <details class="mm-card mm-edit-card" open><summary>Stats JSON</summary><textarea id="mm-setup-stats" class="mm-json-editor">${sanitizeHtml(JSON.stringify(setup.stats || [], null, 2))}</textarea></details>
-            <details class="mm-card mm-edit-card" open><summary>Hierarchy tiers JSON</summary><textarea id="mm-setup-tiers" class="mm-json-editor">${sanitizeHtml(JSON.stringify(setup.tiers || [], null, 2))}</textarea></details>
-            <div class="mm-row"><button id="mm-validate-structured" type="button">Validate</button><button id="mm-save-structured" type="button">Save current setup</button><button id="mm-save-library" type="button">Save to library</button><button id="mm-export-setup" type="button">Export setup</button></div>
-            <details class="mm-card mm-edit-card"><summary>Complete raw JSON</summary><textarea id="mm-raw-json" class="mm-json-editor mm-json-editor-large">${sanitizeHtml(JSON.stringify(setup, null, 2))}</textarea><div class="mm-row"><button id="mm-load-raw-from-sections" type="button">Refresh from sections</button><button id="mm-validate-raw" type="button">Validate raw JSON</button><button id="mm-save-raw" type="button">Save raw JSON</button></div></details>
+            <h4>Tracker setup</h4>
+            <div class="mm-muted">Add stats and arrange the tier hierarchy without editing JSON.</div>
+            <label>Setup name<input data-setup-field="name" value="${sanitizeHtml(setupDraft.name)}"></label>
+            <label>Description<textarea data-setup-field="description">${sanitizeHtml(setupDraft.description || '')}</textarea></label>
+            <details class="mm-card mm-edit-card"><summary>Advanced identity and judge guidance</summary>
+                <div class="mm-field-grid"><label>Setup ID<input data-setup-field="id" value="${sanitizeHtml(setupDraft.id)}"></label><label>Version<input data-setup-field="version" value="${sanitizeHtml(setupDraft.version)}"></label></div>
+                <label>Judge guidance<textarea data-judge-field="prompt_guidance">${sanitizeHtml(setupDraft.judge?.prompt_guidance || '')}</textarea></label>
+            </details>
+            <div class="mm-builder-section"><div class="mm-builder-title"><div><h4>Stats</h4><div class="mm-muted">Every confirmed new change adds one point.</div></div><button id="mm-add-stat" type="button">Add stat</button></div>${statsBuilderHtml()}</div>
+            <div class="mm-builder-section"><div class="mm-builder-title"><div><h4>Tier hierarchy</h4><div class="mm-muted">The first tier is the starting tier. Later tiers require every listed condition.</div></div><button id="mm-add-tier" type="button">Add tier</button></div>${tiersBuilderHtml()}</div>
+            <div class="mm-row"><button id="mm-save-setup" type="button">Save changes</button><button id="mm-save-library" type="button">Save to library</button></div>
             <div id="mm-validation-result">${validation ? validationHtml(validation) : ''}</div>
         </section>`;
+}
+
+function statsBuilderHtml() {
+    if (!setupDraft.stats?.length) return '<div class="mm-empty-builder">No stats yet. Add the first stat to begin.</div>';
+    return setupDraft.stats.map((stat, index) => `
+        <div class="mm-builder-card" data-stat-index="${index}">
+            <div class="mm-builder-head"><strong>${sanitizeHtml(stat.label || `Stat ${index + 1}`)}</strong><button class="mm-danger" data-remove-stat="${index}" type="button">Remove</button></div>
+            <div class="mm-field-grid"><label>Label<input data-stat-field="label" value="${sanitizeHtml(stat.label || '')}"></label><label>Key<input data-stat-field="key" value="${sanitizeHtml(stat.key || '')}"></label><label>Maximum<input data-stat-field="max" type="number" min="1" value="${sanitizeHtml(stat.max ?? 30)}"></label><label>Starting value<input data-stat-field="default" type="number" min="0" max="${sanitizeHtml(stat.max ?? 30)}" value="${sanitizeHtml(stat.default ?? 0)}"></label></div>
+            <label>Description<textarea data-stat-field="description">${sanitizeHtml(stat.description || '')}</textarea></label>
+            <label>What should count?<textarea data-stat-field="judge_guidance">${sanitizeHtml(stat.judge_guidance || '')}</textarea></label>
+        </div>`).join('');
+}
+
+function statOptions(selected) {
+    return (setupDraft.stats || []).map((stat) => `<option value="${sanitizeHtml(stat.key)}" ${stat.key === selected ? 'selected' : ''}>${sanitizeHtml(stat.label || stat.key)}</option>`).join('');
+}
+
+function conditionsBuilderHtml(tier, tierIndex) {
+    if (tierIndex === 0) return '<div class="mm-muted">Starting tier — always active until Tier 2 is reached.</div>';
+    if (!tier.requires?.length) return '<div class="mm-empty-builder">No conditions yet.</div>';
+    return `<div class="mm-condition-list">${tier.requires.map((condition, conditionIndex) => `
+        <div class="mm-condition-row" data-tier-index="${tierIndex}" data-condition-index="${conditionIndex}">
+            <select data-condition-field="stat" aria-label="Condition stat">${statOptions(condition.stat)}</select><span>reaches</span><input data-condition-field="value" aria-label="Condition threshold" type="number" min="0" value="${sanitizeHtml(condition.value)}"><button class="mm-danger" data-remove-condition="${conditionIndex}" type="button">Remove</button>
+        </div>`).join('')}</div>`;
+}
+
+function tiersBuilderHtml() {
+    return (setupDraft.tiers || []).map((tier, index) => `
+        <div class="mm-builder-card" data-tier-index="${index}">
+            <div class="mm-builder-head"><strong>${sanitizeHtml(tier.label || `Tier ${index + 1}`)}</strong><div class="mm-builder-actions">${index > 1 ? `<button data-move-tier-up="${index}" type="button" aria-label="Move ${sanitizeHtml(tier.label)} up">↑</button>` : ''}${index > 0 && index < setupDraft.tiers.length - 1 ? `<button data-move-tier-down="${index}" type="button" aria-label="Move ${sanitizeHtml(tier.label)} down">↓</button>` : ''}${index > 0 ? `<button class="mm-danger" data-remove-tier="${index}" type="button">Remove</button>` : ''}</div></div>
+            <div class="mm-field-grid"><label>Label<input data-tier-field="label" value="${sanitizeHtml(tier.label || '')}"></label><label>World Info key<input data-tier-field="world_info_key" value="${sanitizeHtml(tier.world_info_key || '')}"></label></div>
+            <label>Description<textarea data-tier-field="description">${sanitizeHtml(tier.description || '')}</textarea></label>
+            <details class="mm-card mm-condition-editor" ${index === 0 ? '' : 'open'}><summary>${index === 0 ? 'Starting tier' : `Conditions (${tier.requires?.length || 0})`}</summary>${conditionsBuilderHtml(tier, index)}${index > 0 ? '<button data-add-condition type="button">Add condition</button>' : ''}</details>
+        </div>`).join('');
 }
 
 function bindChange(selector, handler) {
@@ -367,21 +449,59 @@ function bindSettingsActions() {
     settingsEl.querySelector('#mm-refresh-profiles')?.addEventListener('click', refreshConnectionProfiles);
     settingsEl.querySelector('#mm-start-blank')?.addEventListener('click', () => startTracker(DEFAULT_SETUP, { confirmReplace: true }).catch(showError));
     settingsEl.querySelector('#mm-import-setup')?.addEventListener('click', importSetupFile);
-    settingsEl.querySelector('#mm-export-all')?.addEventListener('click', exportAllData);
-    settingsEl.querySelector('#mm-import-all')?.addEventListener('click', importAllData);
     settingsEl.querySelector('#mm-reset-settings')?.addEventListener('click', resetExtensionSettings);
     settingsEl.querySelector('#mm-library-load')?.addEventListener('click', loadSelectedLibrarySetup);
-    settingsEl.querySelector('#mm-library-duplicate')?.addEventListener('click', duplicateSelectedLibrarySetup);
-    settingsEl.querySelector('#mm-library-export')?.addEventListener('click', exportSelectedLibrarySetup);
     settingsEl.querySelector('#mm-library-delete')?.addEventListener('click', deleteSelectedLibrarySetup);
-    settingsEl.querySelector('#mm-library-search')?.addEventListener('input', filterLibraryOptions);
-    settingsEl.querySelector('#mm-validate-structured')?.addEventListener('click', () => validateEditor(false));
-    settingsEl.querySelector('#mm-save-structured')?.addEventListener('click', () => saveEditor(false));
-    settingsEl.querySelector('#mm-save-library')?.addEventListener('click', saveCurrentSetupToLibrary);
-    settingsEl.querySelector('#mm-export-setup')?.addEventListener('click', () => getSetup() && downloadJson(`${slugify(getSetup().name, 'metamorph-setup')}.json`, getSetup()));
-    settingsEl.querySelector('#mm-load-raw-from-sections')?.addEventListener('click', loadRawFromSections);
-    settingsEl.querySelector('#mm-validate-raw')?.addEventListener('click', () => validateEditor(true));
-    settingsEl.querySelector('#mm-save-raw')?.addEventListener('click', () => saveEditor(true));
+    settingsEl.querySelector('#mm-save-setup')?.addEventListener('click', saveSetupDraft);
+    settingsEl.querySelector('#mm-save-library')?.addEventListener('click', saveDraftToLibrary);
+    settingsEl.querySelector('#mm-export-setup')?.addEventListener('click', () => setupDraft && downloadJson(`${slugify(setupDraft.name, 'metamorph-setup')}.json`, migrateSetup(setupDraft).setup));
+    settingsEl.querySelector('#mm-add-stat')?.addEventListener('click', () => { setupDraft.stats.push(newStat()); renderSettings(); });
+    settingsEl.querySelector('#mm-add-tier')?.addEventListener('click', () => { setupDraft.tiers.push(newTier()); renderSettings(); });
+    bindSetupBuilderActions();
+}
+
+function bindSetupBuilderActions() {
+    settingsEl.querySelectorAll('[data-setup-field]').forEach((input) => input.addEventListener('input', () => { setupDraft[input.dataset.setupField] = input.value; }));
+    settingsEl.querySelectorAll('[data-judge-field]').forEach((input) => input.addEventListener('input', () => { setupDraft.judge ||= {}; setupDraft.judge[input.dataset.judgeField] = input.value; }));
+    settingsEl.querySelectorAll('[data-stat-index]').forEach((card) => {
+        const index = Number(card.dataset.statIndex);
+        card.querySelectorAll('[data-stat-field]').forEach((input) => input.addEventListener('input', () => {
+            const field = input.dataset.statField;
+            const oldKey = setupDraft.stats[index].key;
+            const value = ['max', 'default'].includes(field) ? Number(input.value) : input.value;
+            setupDraft.stats[index][field] = value;
+            setupDraft.stats[index].min = 0;
+            if (field === 'key' && oldKey !== value) {
+                for (const tier of setupDraft.tiers) for (const condition of tier.requires || []) if (condition.stat === oldKey) condition.stat = value;
+            }
+        }));
+    });
+    settingsEl.querySelectorAll('[data-remove-stat]').forEach((button) => button.addEventListener('click', () => {
+        const [removed] = setupDraft.stats.splice(Number(button.dataset.removeStat), 1);
+        for (const tier of setupDraft.tiers) tier.requires = (tier.requires || []).filter((condition) => condition.stat !== removed.key);
+        renderSettings();
+    }));
+    settingsEl.querySelectorAll('[data-tier-index]').forEach((card) => {
+        const tierIndex = Number(card.dataset.tierIndex);
+        card.querySelectorAll('[data-tier-field]').forEach((input) => input.addEventListener('input', () => { setupDraft.tiers[tierIndex][input.dataset.tierField] = input.value; }));
+        card.querySelectorAll('[data-condition-index]').forEach((row) => {
+            const conditionIndex = Number(row.dataset.conditionIndex);
+            row.querySelectorAll('[data-condition-field]').forEach((input) => input.addEventListener('change', () => {
+                const field = input.dataset.conditionField;
+                setupDraft.tiers[tierIndex].requires[conditionIndex][field] = field === 'value' ? Number(input.value) : input.value;
+                setupDraft.tiers[tierIndex].requires[conditionIndex].op = '>=';
+            }));
+        });
+        card.querySelectorAll('[data-remove-condition]').forEach((button) => button.addEventListener('click', () => { setupDraft.tiers[tierIndex].requires.splice(Number(button.dataset.removeCondition), 1); renderSettings(); }));
+        card.querySelector('[data-add-condition]')?.addEventListener('click', () => {
+            if (!setupDraft.stats.length) return notify('Add a stat before adding tier conditions.', 'error');
+            setupDraft.tiers[tierIndex].requires.push({ stat: setupDraft.stats[0].key, op: '>=', value: 10 });
+            renderSettings();
+        });
+    });
+    settingsEl.querySelectorAll('[data-remove-tier]').forEach((button) => button.addEventListener('click', () => { setupDraft.tiers.splice(Number(button.dataset.removeTier), 1); renderSettings(); }));
+    settingsEl.querySelectorAll('[data-move-tier-up]').forEach((button) => button.addEventListener('click', () => { const index = Number(button.dataset.moveTierUp); [setupDraft.tiers[index - 1], setupDraft.tiers[index]] = [setupDraft.tiers[index], setupDraft.tiers[index - 1]]; renderSettings(); }));
+    settingsEl.querySelectorAll('[data-move-tier-down]').forEach((button) => button.addEventListener('click', () => { const index = Number(button.dataset.moveTierDown); [setupDraft.tiers[index + 1], setupDraft.tiers[index]] = [setupDraft.tiers[index], setupDraft.tiers[index + 1]]; renderSettings(); }));
 }
 
 async function refreshConnectionProfiles() {
@@ -398,39 +518,9 @@ function selectedLibraryEntry() {
     return (getSettings().savedSetups || []).find((entry) => entry.id === id) || null;
 }
 
-function filterLibraryOptions(event) {
-    const query = event.target.value.trim().toLowerCase();
-    const select = settingsEl.querySelector('#mm-library-select');
-    if (!select) return;
-    select.innerHTML = (getSettings().savedSetups || []).filter((entry) => `${entry.name} ${entry.id}`.toLowerCase().includes(query)).map((entry) => `<option value="${sanitizeHtml(entry.id)}">${sanitizeHtml(entry.name)}</option>`).join('') || '<option value="">No matching setups</option>';
-}
-
 async function loadSelectedLibrarySetup() {
     const entry = selectedLibraryEntry();
     if (entry) await startTracker(entry.setup, { confirmReplace: true });
-}
-
-function uniqueLibraryId(base) {
-    const ids = new Set((getSettings().savedSetups || []).map((entry) => entry.id));
-    let candidate = slugify(base, 'setup');
-    let suffix = 2;
-    while (ids.has(candidate)) candidate = `${slugify(base, 'setup')}_${suffix++}`;
-    return candidate;
-}
-
-function duplicateSelectedLibrarySetup() {
-    const entry = selectedLibraryEntry();
-    if (!entry) return;
-    const copy = clone(entry.setup);
-    copy.id = uniqueLibraryId(`${copy.id}_copy`);
-    copy.name = `${copy.name} Copy`;
-    saveLibraryEntry(copy);
-    renderSettings();
-}
-
-function exportSelectedLibrarySetup() {
-    const entry = selectedLibraryEntry();
-    if (entry) downloadJson(`${slugify(entry.name, 'metamorph-setup')}.json`, entry.setup);
 }
 
 function deleteSelectedLibrarySetup() {
@@ -451,76 +541,58 @@ function saveLibraryEntry(setup) {
     saveSettings();
 }
 
-function parseJsonArrayField(selector, label) {
-    const parsed = JSON.parse(settingsEl.querySelector(selector)?.value || '[]');
-    if (!Array.isArray(parsed)) throw new Error(`${label} must be a JSON array.`);
-    return parsed;
-}
-
-function setupFromStructuredEditor() {
-    const current = clone(getSetup() || DEFAULT_SETUP);
-    current.name = settingsEl.querySelector('#mm-setup-name')?.value.trim();
-    current.id = slugify(settingsEl.querySelector('#mm-setup-id')?.value || current.name, 'setup');
-    current.version = settingsEl.querySelector('#mm-setup-version')?.value.trim() || '1.0.0';
-    current.description = settingsEl.querySelector('#mm-setup-description')?.value.trim() || '';
-    current.schema_version = SCHEMA_VERSION;
-    current.judge = { prompt_guidance: settingsEl.querySelector('#mm-setup-judge-guidance')?.value.trim() || '' };
-    current.stats = parseJsonArrayField('#mm-setup-stats', 'Stats');
-    current.tiers = parseJsonArrayField('#mm-setup-tiers', 'Hierarchy tiers');
-    delete current.tier_lore;
-    delete current.options;
-    return current;
-}
-
-function setupFromRawEditor() {
-    return JSON.parse(settingsEl.querySelector('#mm-raw-json')?.value || '{}');
-}
-
 function showEditorValidation(validation) {
     const container = settingsEl.querySelector('#mm-validation-result');
     if (container) container.innerHTML = validationHtml(validation);
 }
 
-function validateEditor(raw) {
-    try {
-        const validation = validateSetup(raw ? setupFromRawEditor() : setupFromStructuredEditor());
-        showEditorValidation(validation);
-        return validation;
-    } catch (error) {
-        const validation = { valid: false, errors: [{ severity: 'error', path: '$', message: error.message }], warnings: [] };
-        showEditorValidation(validation);
-        return validation;
+function validatedDraft() {
+    setupDraft.id = slugify(setupDraft.id || setupDraft.name, 'setup');
+    setupDraft.version = String(setupDraft.version || '1.0.0');
+    setupDraft.schema_version = SCHEMA_VERSION;
+    setupDraft.judge ||= { prompt_guidance: '' };
+    const statKeyMap = new Map();
+    for (const stat of setupDraft.stats || []) {
+        const oldKey = stat.key;
+        stat.key = slugify(stat.key || stat.label, 'stat');
+        statKeyMap.set(oldKey, stat.key);
+        stat.min = 0;
+        stat.max = Number(stat.max);
+        stat.default = Number(stat.default);
     }
+    for (const [index, tier] of (setupDraft.tiers || []).entries()) {
+        tier.id = slugify(tier.id || tier.label, `tier_${index + 1}`);
+        tier.requires = index === 0 ? [] : (tier.requires || []).map((condition) => ({ stat: statKeyMap.get(condition.stat) || condition.stat, op: '>=', value: Number(condition.value) }));
+    }
+    const setup = migrateSetup(setupDraft).setup;
+    const validation = validateSetup(setup);
+    showEditorValidation(validation);
+    return { setup, validation };
 }
 
-async function saveEditor(raw) {
+async function saveSetupDraft() {
     try {
-        const setup = raw ? setupFromRawEditor() : setupFromStructuredEditor();
-        const validation = validateSetup(setup);
-        showEditorValidation(validation);
+        const { setup, validation } = validatedDraft();
         if (!validation.valid) return;
-        await saveSetup(migrateSetup(setup).setup);
+        const saved = await saveSetup(setup);
+        if (saved === false) return;
+        setupDraft = clone(setup);
         notify('Setup saved.');
     } catch (error) {
         showError(error);
     }
 }
 
-function loadRawFromSections() {
+function saveDraftToLibrary() {
     try {
-        settingsEl.querySelector('#mm-raw-json').value = JSON.stringify(setupFromStructuredEditor(), null, 2);
+        const { setup, validation } = validatedDraft();
+        if (!validation.valid) return;
+        saveLibraryEntry(setup);
+        renderSettings(validation);
+        notify('Setup saved to library.');
     } catch (error) {
         showError(error);
     }
-}
-
-async function saveCurrentSetupToLibrary() {
-    const validation = validateEditor(false);
-    if (!validation.valid) return;
-    const setup = migrateSetup(setupFromStructuredEditor()).setup;
-    saveLibraryEntry(setup);
-    renderSettings(validation);
-    notify('Setup saved to library.');
 }
 
 async function saveSetup(input) {
@@ -532,6 +604,8 @@ async function saveSetup(input) {
     if (!sameScenario && root.setup && !confirm('Changing the setup ID creates a new transformation state. Continue?')) return false;
     root.setup = setup;
     root.state = sameScenario ? normalizeState(root.state, setup) : initialState(setup);
+    setupDraft = clone(setup);
+    setupDraftRoot = root;
     await saveMetadata();
     await refreshPromptInjection();
     renderSettings(validation);
@@ -541,30 +615,6 @@ async function saveSetup(input) {
 
 function importSetupFile() {
     chooseJsonFile(async (data) => { await startTracker(data, { confirmReplace: true }); });
-}
-
-function exportAllData() {
-    downloadJson('metamorph-backup.json', { schema_version: SCHEMA_VERSION, exported_at: new Date().toISOString(), settings: clone(getSettings()), current_chat: clone(getRoot(false)) });
-}
-
-function importAllData() {
-    chooseJsonFile(async (data) => {
-        if (!data?.settings || typeof data.settings !== 'object') throw new Error('Backup does not contain extension settings.');
-        if (!confirm('Import this backup? It replaces the setup library and global Metamorph settings.')) return;
-        ctx().extensionSettings[MODULE_NAME] = { ...cloneValue(defaultSettings), ...clone(data.settings) };
-        getSettings();
-        if (data.current_chat?.setup && getRoot()) {
-            const validation = validateSetup(data.current_chat.setup);
-            if (!validation.valid) throw new Error(`Current-chat setup is invalid: ${formatValidation(validation)}`);
-            ctx().chatMetadata[MODULE_NAME] = clone(data.current_chat);
-            await migrateCurrentChatData();
-            await saveMetadata();
-        }
-        saveSettings();
-        await refreshPromptInjection();
-        await renderAll();
-        notify('Metamorph backup imported.');
-    });
 }
 
 function resetExtensionSettings() {
@@ -761,7 +811,7 @@ async function renderPanel() {
             <h2>${sanitizeHtml(setup.name)}</h2>
             <div class="mm-muted">Subject: ${sanitizeHtml(root.binding?.subject?.name || getCharacterName())}</div>
             <div class="mm-status-row"><span class="mm-badge ${root.binding?.judgeEnabled ? 'mm-on' : ''}">Judge ${root.binding?.judgeEnabled ? 'on' : 'paused'}</span><span class="mm-badge ${root.binding?.promptInjectionEnabled && settings.promptInjectionMode !== 'off' ? 'mm-on' : ''}">Context ${root.binding?.promptInjectionEnabled && settings.promptInjectionMode !== 'off' ? 'on' : 'off'}</span>${postReplyBusy ? '<span class="mm-badge mm-busy">Working…</span>' : ''}</div>
-            <div class="mm-row"><button id="mm-run-judge" type="button" ${postReplyBusy ? 'disabled' : ''}>Judge latest message</button><button id="mm-toggle-judge" type="button">${root.binding?.judgeEnabled ? 'Pause judge' : 'Resume judge'}</button><button id="mm-open-editor" type="button">Setup editor</button></div>
+            <div class="mm-row"><button id="mm-run-judge" type="button" ${postReplyBusy ? 'disabled' : ''}>Judge latest message</button><button id="mm-toggle-judge" type="button">${root.binding?.judgeEnabled ? 'Pause judge' : 'Resume judge'}</button></div>
         </section>
         <section class="mm-section"><div class="mm-tier-hero"><span>Current tier</span><h3>${sanitizeHtml(current?.label || 'No active tier')}</h3>${current?.description ? `<p>${sanitizeHtml(current.description)}</p>` : ''}${current ? `<code>${sanitizeHtml(current.world_info_key)}</code>` : ''}</div></section>
         <section class="mm-section"><h3>Progress</h3>${setup.stats.length ? setup.stats.map((stat) => statHtml(stat, state, following)).join('') : '<div class="mm-muted">No stats are configured.</div>'}</section>
@@ -787,7 +837,6 @@ function bindPanelActions() {
     panelEl.querySelector('#mm-rejudge-stale')?.addEventListener('click', () => runPostReplyWorkflow({ forceJudge: true }));
     panelEl.querySelector('#mm-clear-stale')?.addEventListener('click', async () => updateState(clearStateStale(root.state)));
     panelEl.querySelector('#mm-toggle-judge')?.addEventListener('click', async () => { root.binding.judgeEnabled = !root.binding.judgeEnabled; await saveMetadata(); await renderPanel(); });
-    panelEl.querySelector('#mm-open-editor')?.addEventListener('click', () => { const editor = settingsEl?.querySelector('#mm-scenario-editor'); editor?.scrollIntoView({ behavior: 'smooth', block: 'start' }); editor?.querySelector('input')?.focus(); });
     panelEl.querySelectorAll('[data-stat-key]').forEach((input) => input.addEventListener('keydown', (event) => { if (event.key === 'Enter') commitStatInput(input); }));
     panelEl.querySelectorAll('[data-stat-apply]').forEach((button) => button.addEventListener('click', () => { const input = panelEl.querySelector(`[data-stat-key="${escapeSelector(button.dataset.statApply)}"]`); if (input) commitStatInput(input); }));
     panelEl.querySelector('#mm-prompt-enabled')?.addEventListener('change', async (event) => { root.binding.promptInjectionEnabled = event.target.checked; await saveMetadata(); await refreshPromptInjection(); await renderPanel(); });

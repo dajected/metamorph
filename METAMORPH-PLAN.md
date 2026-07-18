@@ -77,7 +77,7 @@ The focused setup schema contains:
 - Tier conditions using `>=` or `>`
 - Judge guidance
 
-The editor supports structured JSON sections, complete raw JSON, validation, setup library storage, and import/export.
+The editor uses form-based stat, tier, and condition builders. Users can add, remove, and configure the full hierarchy without editing JSON. The setup library is limited to loading, saving, and deleting reusable setups; JSON remains only as an optional import/export format.
 
 ## Migration
 

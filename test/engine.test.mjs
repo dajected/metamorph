@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
     MODULE_NAME,
     SCHEMA_VERSION,
+    DEFAULT_SETUP,
     activeTier,
     applyJudgeResult,
     buildJudgePrompt,
@@ -17,6 +18,7 @@ import {
 
 assert.equal(MODULE_NAME, 'metamorph');
 assert.equal(SCHEMA_VERSION, 3);
+assert.equal(validateSetup(DEFAULT_SETUP).valid, true, 'blank UI setup must be immediately editable and valid');
 
 const setup = {
     id: 'test-hierarchy',
@@ -163,6 +165,10 @@ invalidOperator.tiers[1].requires[0].op = '<=';
 const invalidValidation = validateSetup(invalidOperator);
 assert.equal(invalidValidation.valid, false);
 assert.match(invalidValidation.errors.map((entry) => entry.message).join(' '), /must use > or >=/);
+
+const conditionlessLaterTier = structuredClone(setup);
+conditionlessLaterTier.tiers[1].requires = [];
+assert.equal(validateSetup(conditionlessLaterTier).valid, false);
 
 assert.deepEqual(parseJsonObject('```json\n{"results":[]}\n```'), { results: [] });
 assert.equal(parseJsonObject('not json'), null);

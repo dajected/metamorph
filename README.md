@@ -32,6 +32,22 @@ The sidebar shows:
 
 It intentionally has no available-changes, active-lore, effects, undo, or recent-history sections.
 
+## Creating a Setup in the UI
+
+Stats and tiers can be configured entirely through the Metamorph section in SillyTavern's extension settings. JSON editing is not required.
+
+The form-based builder lets you:
+
+- Add and remove tracked stats
+- Set each stat's label, key, maximum, starting value, description, and judge guidance
+- Add and remove hierarchy tiers
+- Reorder later tiers while keeping the starting tier first
+- Set each tier's label, description, and World Info key
+- Add multiple stat threshold conditions to a tier
+- Save the setup to the current chat or reusable setup library
+
+The simplified library can load or delete saved setups. JSON is retained only for importing and exporting setups.
+
 ## World Info Setup
 
 Each hierarchy tier has a unique `world_info_key`, for example:

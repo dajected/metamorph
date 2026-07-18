@@ -138,18 +138,6 @@
     resize: vertical;
 }
 
-#mm-settings .mm-json-editor {
-    min-height: 210px;
-    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.45;
-    tab-size: 2;
-}
-
-#mm-settings .mm-json-editor-large {
-    min-height: 420px;
-}
-
 #mm-panel input[type="checkbox"],
 #mm-settings input[type="checkbox"] {
     width: 18px;
@@ -497,6 +485,85 @@
     gap: 8px;
 }
 
+.mm-settings-collapsible > summary {
+    min-height: 36px;
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.mm-settings-collapsible[open] > summary {
+    margin-bottom: 4px;
+}
+
+.mm-library-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 6px;
+}
+
+.mm-builder-section {
+    display: grid;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor, #eee) 15%, transparent);
+}
+
+.mm-builder-title,
+.mm-builder-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.mm-builder-title h4 {
+    margin-bottom: 2px;
+}
+
+.mm-builder-card {
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor, #eee) 18%, transparent);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.mm-builder-actions {
+    display: flex;
+    gap: 4px;
+}
+
+#mm-settings .mm-builder-actions button {
+    min-width: 36px;
+    padding: 6px 8px;
+}
+
+.mm-condition-editor {
+    margin: 0;
+}
+
+.mm-condition-list {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 7px;
+}
+
+.mm-condition-row {
+    display: grid;
+    grid-template-columns: minmax(100px, 1fr) auto 90px auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.mm-empty-builder {
+    padding: 12px;
+    border: 1px dashed color-mix(in srgb, var(--SmartThemeBodyColor, #eee) 26%, transparent);
+    border-radius: 8px;
+    opacity: 0.7;
+    text-align: center;
+}
+
 .mm-edit-card > summary,
 #mm-panel summary {
     min-height: 34px;
@@ -569,5 +636,16 @@
 
     .mm-field-grid {
         grid-template-columns: 1fr;
+    }
+
+    .mm-library-row,
+    .mm-condition-row {
+        grid-template-columns: 1fr;
+    }
+
+    .mm-builder-title,
+    .mm-builder-head {
+        align-items: stretch;
+        flex-direction: column;
     }
 }
