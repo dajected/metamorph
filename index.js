@@ -1,3 +1,5 @@
+import { bindPanelLauncher, bindPanelLifecycle, syncPanelElement } from './src/panel.js?v=0.6.1';
+
 const EXTENSION_NAME = 'Metamorph';
 const MODULE_NAME = 'metamorph';
 const LEGACY_MODULE_NAME = 'transformationDirector';
@@ -57,7 +59,7 @@ function cloneValue(value) {
 
 async function loadEngine() {
     if (DEFAULT_SETUP) return;
-    const engine = await import('./src/engine.js?v=0.6.0');
+    const engine = await import('./src/engine.js?v=0.6.1');
     ({
         SCHEMA_VERSION,
         DEFAULT_SETUP,
@@ -660,6 +662,13 @@ function mountPanel() {
     panelEl.setAttribute('aria-label', EXTENSION_NAME);
     panelEl.setAttribute('aria-modal', 'false');
     if (panelEl.parentElement !== document.body) document.body.appendChild(panelEl);
+    bindPanelLifecycle(panelEl, () => {
+        if (!panelOpen) return;
+        panelOpen = false;
+        panelEl.classList.remove('mm-panel-open');
+        panelEl.setAttribute('aria-hidden', 'true');
+        launcherEl?.setAttribute('aria-expanded', 'false');
+    });
     mountExtensionMenuButton();
     syncPanelVisibility();
     return true;
@@ -676,15 +685,14 @@ function mountExtensionMenuButton() {
     launcherEl.tabIndex = 0;
     launcherEl.setAttribute('aria-controls', 'mm-panel');
     launcherEl.setAttribute('aria-expanded', String(panelOpen));
-    if (launcherEl.dataset.mmBound !== 'true') {
-        launcherEl.dataset.mmBound = 'true';
-        launcherEl.addEventListener('click', openPanel);
-        launcherEl.addEventListener('keydown', (event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return;
-            event.preventDefault();
-            openPanel();
-        });
-    }
+    bindPanelLauncher(launcherEl, {
+        openPanel,
+        onError: (error) => {
+            panelOpen = false;
+            syncPanelVisibility();
+            showError(error);
+        },
+    });
     const menu = getExtensionMenuContainer();
     const target = menu || document.body;
     launcherEl.classList.toggle('mm-fallback-launcher', !menu);
@@ -701,8 +709,7 @@ function getExtensionMenuContainer() {
 
 function syncPanelVisibility() {
     if (!panelEl) return;
-    panelEl.classList.toggle('mm-panel-open', panelOpen);
-    panelEl.toggleAttribute('hidden', !panelOpen);
+    syncPanelElement(panelEl, panelOpen);
     launcherEl?.setAttribute('aria-expanded', String(panelOpen));
 }
 

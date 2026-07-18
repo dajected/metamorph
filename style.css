@@ -5,6 +5,8 @@
     bottom: 8px;
     z-index: 2147483000;
     width: min(390px, calc(100vw - 16px));
+    max-height: calc(100vh - 64px);
+    max-height: calc(100dvh - 64px);
     overflow: auto;
     padding: 12px;
     border: 1px solid var(--SmartThemeBorderColor, #586271);
@@ -16,6 +18,17 @@
     line-height: 1.4;
     box-sizing: border-box;
     overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+}
+
+#mm-panel[popover] {
+    left: auto;
+    margin: 0;
+}
+
+#mm-panel::backdrop {
+    background: transparent;
 }
 
 #mm-panel[hidden] {
@@ -574,6 +587,7 @@
         right: 0;
         bottom: 0;
         width: 100%;
+        max-height: min(78vh, 720px);
         max-height: min(78dvh, 720px);
         padding: 14px;
         padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
@@ -583,7 +597,6 @@
         border-radius: 14px 14px 0 0;
         box-shadow: 0 -14px 32px rgba(0, 0, 0, 0.48);
         font-size: 14px;
-        -webkit-overflow-scrolling: touch;
     }
 
     .mm-header {
