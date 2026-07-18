@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Metamorph is a SillyTavern extension for irreversible transformation progress and tier-aware World Info.">
+  <meta name="theme-color" content="#0a0f0b">
+  <meta property="og:title" content="Metamorph for SillyTavern">
+  <meta property="og:description" content="Track irreversible progress. Activate exactly one World Info tier.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://dajected.github.io/metamorph/">
+  <title>Metamorph — Transformation tracking for SillyTavern</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="shell">
+    <nav class="nav" aria-label="Primary navigation">
+      <a class="brand" href="#top"><img src="favicon.svg" alt=""><span>Metamorph</span></a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a class="nav-github" href="https://github.com/dajected/metamorph">GitHub ↗</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top">
+    <div class="shell hero">
+      <div>
+        <div class="eyebrow">SillyTavern extension · v0.4.0</div>
+        <h1>Change that <span class="gradient-text">stays changed.</span></h1>
+        <p class="lede">Metamorph tracks irreversible transformation progress, detects newly established changes, and exposes exactly one active tier to World Info.</p>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/dajected/metamorph/archive/refs/heads/main.zip">Download main</a>
+          <a class="button" href="https://github.com/dajected/metamorph">View source</a>
+        </div>
+      </div>
+
+      <div class="tracker-card" aria-label="Example Metamorph tracker">
+        <div class="card-label">Current tier</div>
+        <h2>Awakening</h2>
+        <div class="tier-key">METAMORPH_TIER_2</div>
+        <div class="progress-row"><strong>Progress</strong><span>17 / 25</span></div>
+        <div class="track"><span></span></div>
+        <div class="tiers">
+          <div class="tier passed">Dormant · Passed</div>
+          <div class="tier active">Awakening · Active</div>
+          <div class="tier">Ascendant · Locked</div>
+        </div>
+      </div>
+    </div>
+
+    <section id="features">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="eyebrow">Focused by design</div>
+          <h2>A progression engine, not a story director.</h2>
+          <p>Your character model still decides what happens. Metamorph keeps the progression consistent and gives World Info the right key at the right time.</p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <span class="feature-number">01</span>
+            <h3>Monotonic progress</h3>
+            <p>Stats only move forward. Each affected stat can increase once per assistant message, and resetting is the only way back.</p>
+          </article>
+          <article class="feature">
+            <span class="feature-number">02</span>
+            <h3>New-change detection</h3>
+            <p>The helper judge scans the latest response and uses compact memory to reject repeated or already-counted changes.</p>
+          </article>
+          <article class="feature">
+            <span class="feature-number">03</span>
+            <h3>One active tier</h3>
+            <p>The highest satisfied tier wins. Only its exact key enters context, keeping World Info activation predictable.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="install">
+      <div class="shell install-grid">
+        <div class="install-copy">
+          <div class="eyebrow">Installation</div>
+          <h2>Drop it into SillyTavern.</h2>
+          <p>Metamorph requires SillyTavern 1.18.0 or later and an existing API connection when helper judging is enabled.</p>
+        </div>
+        <ol class="steps">
+          <li><strong>Download the latest main ZIP</strong> and extract it.</li>
+          <li><strong>Copy the <code>metamorph</code> folder</strong> into your third-party extensions directory.<code class="path">public/scripts/extensions/third-party/metamorph/</code></li>
+          <li><strong>Reload SillyTavern</strong> and enable Metamorph under Manage Extensions.</li>
+          <li><strong>Set up tier keys</strong> in World Info, then import or build your tracker setup.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="cta">
+          <div><h2>Open source. Easy to inspect.</h2><p>MIT licensed, deterministic core tests, and no stored API keys.</p></div>
+          <a class="button primary" href="https://github.com/dajected/metamorph#development">Read the docs</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="shell">
+    <footer><span>Metamorph for SillyTavern</span><span>MIT licensed · Built by Andrew</span></footer>
+  </div>
+</body>
+</html>
+

@@ -1,0 +1,109 @@
+# Metamorph Product Plan
+
+## Product Purpose
+
+Metamorph tracks irreversible transformation progress during a SillyTavern chat. It maintains multiple numeric stats within one ordered hierarchy and injects exactly one active tier key into context. SillyTavern World Info uses that key to decide which transformation possibilities the character model may portray.
+
+Metamorph does not select, offer, or apply individual transformation changes.
+
+## State Model
+
+- One ordered tier hierarchy per tracker
+- One or more monotonic stats
+- Exactly one active tier: the highest ordered tier whose conditions all pass
+- All conditions on a tier must be satisfied
+- Passed tiers remain passed because stats cannot decrease
+- Only reset may return stats to their defaults
+- Each tier provides one unique World Info activation key
+
+Tier ranges are represented by cumulative lower thresholds. For example:
+
+- Tier 1: no conditions, effectively below 10
+- Tier 2: `vanity >= 10`, effectively 10–19
+- Tier 3: `vanity >= 20`, effectively 20–29
+- Tier 4: `vanity >= 30`
+
+Explicit upper bounds are unnecessary because the highest satisfied tier wins.
+
+## Judge Model
+
+The judge is a new-change detector.
+
+- Scan only the latest assistant message
+- Compare against compact internal counted-change memory
+- Count only concrete changes first established in that message
+- Do not count repetitions, continued traits, intentions, hypotheticals, or comments about existing changes
+- Record every distinct new change for future deduplication
+- Add exactly one point to each affected stat
+- Add at most one point per stat per assistant message
+- Allow one change to affect multiple stats
+- Never return or apply negative values
+- Make repeated processing of the same unchanged message idempotent
+
+The counted-change memory is available in a collapsed troubleshooting section, not a recent-history feed.
+
+## World Info Integration
+
+Metamorph injects a compact context block containing:
+
+- The current tier's exact `world_info_key`
+- The current tier label
+- Current stat values
+
+The extension prompt is registered with SillyTavern's World Info scan flag enabled. Only the active tier key is present, so only World Info entries keyed to that tier are eligible through Metamorph.
+
+## Sidebar Layout
+
+1. Header and close control
+2. Tracker identity, subject, judge/context statuses, and primary actions
+3. Current-tier card with label, description, and World Info key
+4. Stat progress bars measured against each next-tier threshold
+5. Next-tier conditions with met/unmet indicators
+6. Compact hierarchy showing Passed, Active, and Locked tiers
+7. Collapsed context preview
+8. Collapsed counted-change memory
+9. Collapsed tracker controls
+
+The sidebar contains no available changes, embedded lore, effects, undo, or recent history.
+
+## Setup Editor
+
+The focused setup schema contains:
+
+- Identity and description
+- Stats
+- Ordered tiers
+- Tier World Info keys
+- Tier conditions using `>=` or `>`
+- Judge guidance
+
+The editor supports structured JSON sections, complete raw JSON, validation, setup library storage, and import/export.
+
+## Migration
+
+Schema version 3 removes:
+
+- Fictional time and day parts
+- Autonomy and narrative beats
+- Embedded tier lore
+- Options and available changes
+- Effects and appearance layers
+- Applied changes and undo
+- Recent event history
+- Simultaneously active tiers
+
+Existing stat progress is preserved when the setup ID remains unchanged.
+
+## Acceptance Criteria
+
+- Exactly one tier is active at every configured point in the hierarchy
+- A tier activates only after all its conditions pass
+- Stats cannot be lowered manually or by the judge
+- One assistant message can add no more than one point to any stat
+- A message can add one point to several stats
+- Repeated changes do not increment stats again
+- Rejudging an unchanged message is idempotent
+- Only the active tier key appears in the injected block
+- The injected block is included in SillyTavern World Info scanning
+- No change-selection or history UI remains
+- Desktop sidebar and mobile bottom sheet remain usable and accessible

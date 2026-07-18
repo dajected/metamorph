@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Metamorph">
+  <defs>
+    <linearGradient id="g" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#b9ff66"/>
+      <stop offset="1" stop-color="#6ce5d6"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#111812"/>
+  <path d="M13 47V17h8l11 16 11-16h8v30h-8V29L32 44 21 29v18z" fill="url(#g)"/>
+</svg>
+
