@@ -57,7 +57,7 @@ function cloneValue(value) {
 
 async function loadEngine() {
     if (DEFAULT_SETUP) return;
-    const engine = await import('./src/engine.js?v=0.5.0');
+    const engine = await import('./src/engine.js?v=0.6.0');
     ({
         SCHEMA_VERSION,
         DEFAULT_SETUP,
@@ -305,7 +305,7 @@ function profileOptionsHtml() {
 }
 
 function savedSetupOptionsHtml() {
-    return (getSettings().savedSetups || []).map((entry) => `<option value="${sanitizeHtml(entry.id)}">${sanitizeHtml(entry.name)} · ${sanitizeHtml(entry.setup?.version || '')}</option>`).join('');
+    return (getSettings().savedSetups || []).map((entry) => `<option value="${sanitizeHtml(entry.id)}">${sanitizeHtml(entry.name)}</option>`).join('');
 }
 
 function ensureSetupDraft(setup = getSetup()) {
@@ -333,6 +333,13 @@ function newStat() {
         description: '',
         judge_guidance: '',
     };
+}
+
+function newBlankSetup() {
+    const setup = clone(DEFAULT_SETUP);
+    const uniquePart = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setup.id = `metamorph-${uniquePart}`;
+    return setup;
 }
 
 function newTier() {
@@ -391,13 +398,9 @@ function setupEditorHtml(setup, validation) {
             <div class="mm-muted">Add stats and arrange the tier hierarchy without editing JSON.</div>
             <label>Setup name<input data-setup-field="name" value="${sanitizeHtml(setupDraft.name)}"></label>
             <label>Description<textarea data-setup-field="description">${sanitizeHtml(setupDraft.description || '')}</textarea></label>
-            <details class="mm-card mm-edit-card"><summary>Advanced identity and judge guidance</summary>
-                <div class="mm-field-grid"><label>Setup ID<input data-setup-field="id" value="${sanitizeHtml(setupDraft.id)}"></label><label>Version<input data-setup-field="version" value="${sanitizeHtml(setupDraft.version)}"></label></div>
-                <label>Judge guidance<textarea data-judge-field="prompt_guidance">${sanitizeHtml(setupDraft.judge?.prompt_guidance || '')}</textarea></label>
-            </details>
             <div class="mm-builder-section"><div class="mm-builder-title"><div><h4>Stats</h4><div class="mm-muted">Every confirmed new change adds one point.</div></div><button id="mm-add-stat" type="button">Add stat</button></div>${statsBuilderHtml()}</div>
             <div class="mm-builder-section"><div class="mm-builder-title"><div><h4>Tier hierarchy</h4><div class="mm-muted">The first tier is the starting tier. Later tiers require every listed condition.</div></div><button id="mm-add-tier" type="button">Add tier</button></div>${tiersBuilderHtml()}</div>
-            <div class="mm-row"><button id="mm-save-setup" type="button">Save changes</button><button id="mm-save-library" type="button">Save to library</button></div>
+            <div class="mm-row"><button id="mm-save-setup" type="button">Save setup</button></div>
             <div id="mm-validation-result">${validation ? validationHtml(validation) : ''}</div>
         </section>`;
 }
@@ -447,13 +450,12 @@ function bindSettingsActions() {
     bindChange('#mm-prompt-mode', async (event) => { getSettings().promptInjectionMode = event.target.value; saveSettings(); await refreshPromptInjection(); await renderPanel(); });
     bindChange('#mm-debug', async (event) => { getSettings().debugMode = event.target.checked; saveSettings(); await renderPanel(); });
     settingsEl.querySelector('#mm-refresh-profiles')?.addEventListener('click', refreshConnectionProfiles);
-    settingsEl.querySelector('#mm-start-blank')?.addEventListener('click', () => startTracker(DEFAULT_SETUP, { confirmReplace: true }).catch(showError));
+    settingsEl.querySelector('#mm-start-blank')?.addEventListener('click', () => startTracker(newBlankSetup(), { confirmReplace: true }).catch(showError));
     settingsEl.querySelector('#mm-import-setup')?.addEventListener('click', importSetupFile);
     settingsEl.querySelector('#mm-reset-settings')?.addEventListener('click', resetExtensionSettings);
     settingsEl.querySelector('#mm-library-load')?.addEventListener('click', loadSelectedLibrarySetup);
     settingsEl.querySelector('#mm-library-delete')?.addEventListener('click', deleteSelectedLibrarySetup);
     settingsEl.querySelector('#mm-save-setup')?.addEventListener('click', saveSetupDraft);
-    settingsEl.querySelector('#mm-save-library')?.addEventListener('click', saveDraftToLibrary);
     settingsEl.querySelector('#mm-export-setup')?.addEventListener('click', () => setupDraft && downloadJson(`${slugify(setupDraft.name, 'metamorph-setup')}.json`, migrateSetup(setupDraft).setup));
     settingsEl.querySelector('#mm-add-stat')?.addEventListener('click', () => { setupDraft.stats.push(newStat()); renderSettings(); });
     settingsEl.querySelector('#mm-add-tier')?.addEventListener('click', () => { setupDraft.tiers.push(newTier()); renderSettings(); });
@@ -462,7 +464,6 @@ function bindSettingsActions() {
 
 function bindSetupBuilderActions() {
     settingsEl.querySelectorAll('[data-setup-field]').forEach((input) => input.addEventListener('input', () => { setupDraft[input.dataset.setupField] = input.value; }));
-    settingsEl.querySelectorAll('[data-judge-field]').forEach((input) => input.addEventListener('input', () => { setupDraft.judge ||= {}; setupDraft.judge[input.dataset.judgeField] = input.value; }));
     settingsEl.querySelectorAll('[data-stat-index]').forEach((card) => {
         const index = Number(card.dataset.statIndex);
         card.querySelectorAll('[data-stat-field]').forEach((input) => input.addEventListener('input', () => {
@@ -547,10 +548,9 @@ function showEditorValidation(validation) {
 }
 
 function validatedDraft() {
-    setupDraft.id = slugify(setupDraft.id || setupDraft.name, 'setup');
+    setupDraft.id = String(setupDraft.id || slugify(setupDraft.name, 'setup'));
     setupDraft.version = String(setupDraft.version || '1.0.0');
     setupDraft.schema_version = SCHEMA_VERSION;
-    setupDraft.judge ||= { prompt_guidance: '' };
     const statKeyMap = new Map();
     for (const stat of setupDraft.stats || []) {
         const oldKey = stat.key;
@@ -576,20 +576,10 @@ async function saveSetupDraft() {
         if (!validation.valid) return;
         const saved = await saveSetup(setup);
         if (saved === false) return;
-        setupDraft = clone(setup);
-        notify('Setup saved.');
-    } catch (error) {
-        showError(error);
-    }
-}
-
-function saveDraftToLibrary() {
-    try {
-        const { setup, validation } = validatedDraft();
-        if (!validation.valid) return;
         saveLibraryEntry(setup);
+        setupDraft = clone(setup);
         renderSettings(validation);
-        notify('Setup saved to library.');
+        notify('Setup saved and added to the library.');
     } catch (error) {
         showError(error);
     }
@@ -676,16 +666,24 @@ function mountPanel() {
 }
 
 function mountExtensionMenuButton() {
-    launcherEl = document.getElementById('mm-panel-launcher') || launcherEl || document.createElement('button');
+    const existingLauncher = document.getElementById('mm-panel-launcher');
+    if (existingLauncher && existingLauncher.tagName !== 'DIV') existingLauncher.remove();
+    launcherEl = document.getElementById('mm-panel-launcher') || (launcherEl?.tagName === 'DIV' ? launcherEl : null) || document.createElement('div');
     launcherEl.id = 'mm-panel-launcher';
-    launcherEl.type = 'button';
-    launcherEl.textContent = EXTENSION_NAME;
-    launcherEl.className = 'menu_button mm-panel-launcher';
+    launcherEl.className = 'list-group-item flex-container flexGap5 mm-panel-launcher';
+    launcherEl.innerHTML = `<div class="fa-solid fa-dna extensionsMenuExtensionButton" aria-hidden="true"></div><span>${sanitizeHtml(EXTENSION_NAME)}</span>`;
+    launcherEl.setAttribute('role', 'button');
+    launcherEl.tabIndex = 0;
     launcherEl.setAttribute('aria-controls', 'mm-panel');
     launcherEl.setAttribute('aria-expanded', String(panelOpen));
     if (launcherEl.dataset.mmBound !== 'true') {
         launcherEl.dataset.mmBound = 'true';
         launcherEl.addEventListener('click', openPanel);
+        launcherEl.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            openPanel();
+        });
     }
     const menu = getExtensionMenuContainer();
     const target = menu || document.body;
@@ -811,7 +809,6 @@ async function renderPanel() {
             <h2>${sanitizeHtml(setup.name)}</h2>
             <div class="mm-muted">Subject: ${sanitizeHtml(root.binding?.subject?.name || getCharacterName())}</div>
             <div class="mm-status-row"><span class="mm-badge ${root.binding?.judgeEnabled ? 'mm-on' : ''}">Judge ${root.binding?.judgeEnabled ? 'on' : 'paused'}</span><span class="mm-badge ${root.binding?.promptInjectionEnabled && settings.promptInjectionMode !== 'off' ? 'mm-on' : ''}">Context ${root.binding?.promptInjectionEnabled && settings.promptInjectionMode !== 'off' ? 'on' : 'off'}</span>${postReplyBusy ? '<span class="mm-badge mm-busy">Working…</span>' : ''}</div>
-            <div class="mm-row"><button id="mm-run-judge" type="button" ${postReplyBusy ? 'disabled' : ''}>Judge latest message</button><button id="mm-toggle-judge" type="button">${root.binding?.judgeEnabled ? 'Pause judge' : 'Resume judge'}</button></div>
         </section>
         <section class="mm-section"><div class="mm-tier-hero"><span>Current tier</span><h3>${sanitizeHtml(current?.label || 'No active tier')}</h3>${current?.description ? `<p>${sanitizeHtml(current.description)}</p>` : ''}${current ? `<code>${sanitizeHtml(current.world_info_key)}</code>` : ''}</div></section>
         <section class="mm-section"><h3>Progress</h3>${setup.stats.length ? setup.stats.map((stat) => statHtml(stat, state, following)).join('') : '<div class="mm-muted">No stats are configured.</div>'}</section>
@@ -833,10 +830,8 @@ function bindPanelActions() {
     const root = getRoot(false);
     const setup = getSetup();
     if (!root || !setup) return;
-    panelEl.querySelector('#mm-run-judge')?.addEventListener('click', () => runPostReplyWorkflow({ forceJudge: true }));
     panelEl.querySelector('#mm-rejudge-stale')?.addEventListener('click', () => runPostReplyWorkflow({ forceJudge: true }));
     panelEl.querySelector('#mm-clear-stale')?.addEventListener('click', async () => updateState(clearStateStale(root.state)));
-    panelEl.querySelector('#mm-toggle-judge')?.addEventListener('click', async () => { root.binding.judgeEnabled = !root.binding.judgeEnabled; await saveMetadata(); await renderPanel(); });
     panelEl.querySelectorAll('[data-stat-key]').forEach((input) => input.addEventListener('keydown', (event) => { if (event.key === 'Enter') commitStatInput(input); }));
     panelEl.querySelectorAll('[data-stat-apply]').forEach((button) => button.addEventListener('click', () => { const input = panelEl.querySelector(`[data-stat-key="${escapeSelector(button.dataset.statApply)}"]`); if (input) commitStatInput(input); }));
     panelEl.querySelector('#mm-prompt-enabled')?.addEventListener('change', async (event) => { root.binding.promptInjectionEnabled = event.target.checked; await saveMetadata(); await refreshPromptInjection(); await renderPanel(); });

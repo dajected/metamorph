@@ -17,7 +17,7 @@ import {
 } from '../src/engine.js';
 
 assert.equal(MODULE_NAME, 'metamorph');
-assert.equal(SCHEMA_VERSION, 3);
+assert.equal(SCHEMA_VERSION, 4);
 assert.equal(validateSetup(DEFAULT_SETUP).valid, true, 'blank UI setup must be immediately editable and valid');
 
 const setup = {
@@ -41,7 +41,6 @@ const setup = {
             { stat: 'confidence', op: '>', value: 14 },
         ] },
     ],
-    judge: { prompt_guidance: 'Latest assistant message only.' },
 };
 
 const validation = validateSetup(setup);
@@ -79,6 +78,7 @@ assert.match(prompt, /latest assistant message/i);
 assert.match(prompt, /at most \+1 per stat per message/i);
 assert.match(prompt, /red lipstick/);
 assert.doesNotMatch(prompt, /Latest user message/);
+assert.doesNotMatch(prompt, /Setup guidance/);
 
 const judged = applyJudgeResult(state, {
     results: [
@@ -129,13 +129,15 @@ const legacySetup = {
     tier_lore: [{ id: 'old', text: 'obsolete' }],
     options: [{ id: 'old-change' }],
     time: { enabled: true },
+    judge: { prompt_guidance: 'Obsolete setup-wide guidance.' },
     tiers: setup.tiers.map(({ world_info_key, ...tier }) => tier),
 };
 const migrated = migrateSetup(legacySetup);
 assert.equal(migrated.migrated, true);
-assert.equal(migrated.setup.schema_version, 3);
+assert.equal(migrated.setup.schema_version, SCHEMA_VERSION);
 assert.equal(Object.hasOwn(migrated.setup, 'tier_lore'), false);
 assert.equal(Object.hasOwn(migrated.setup, 'options'), false);
+assert.equal(Object.hasOwn(migrated.setup, 'judge'), false);
 assert.ok(migrated.setup.tiers.every((tier) => tier.world_info_key.startsWith('METAMORPH_TIER_')));
 
 const legacyRanges = structuredClone(legacySetup);

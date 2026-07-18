@@ -1,5 +1,5 @@
 export const MODULE_NAME = 'metamorph';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const DEFAULT_SETUP = Object.freeze({
     id: 'current-chat-transformation',
@@ -27,9 +27,6 @@ export const DEFAULT_SETUP = Object.freeze({
             requires: [],
         },
     ],
-    judge: {
-        prompt_guidance: 'Count only concrete transformation changes first established in the latest assistant message.',
-    },
 });
 
 export function clone(value) {
@@ -54,7 +51,7 @@ function tierKey(id, index) {
 export function migrateSetup(input) {
     const setup = clone(input || DEFAULT_SETUP);
     const fromVersion = Number(setup.schema_version) || 1;
-    const obsoleteKeys = ['time', 'decision', 'beats', 'tier_lore', 'options'];
+    const obsoleteKeys = ['time', 'decision', 'beats', 'tier_lore', 'options', 'judge'];
     const migrated = fromVersion !== SCHEMA_VERSION || obsoleteKeys.some((key) => Object.hasOwn(setup, key));
 
     for (const key of obsoleteKeys) delete setup[key];
@@ -65,10 +62,6 @@ export function migrateSetup(input) {
     setup.description = String(setup.description || '');
     setup.stats = Array.isArray(setup.stats) ? setup.stats : [];
     setup.tiers = Array.isArray(setup.tiers) ? setup.tiers : [];
-    setup.judge = {
-        prompt_guidance: String(setup.judge?.prompt_guidance || DEFAULT_SETUP.judge.prompt_guidance),
-    };
-
     setup.stats = setup.stats.map((stat) => ({
         ...stat,
         key: String(stat?.key || ''),
@@ -106,7 +99,7 @@ export function validateSetup(input) {
         return { valid: false, errors, warnings };
     }
 
-    for (const key of ['time', 'decision', 'beats', 'tier_lore', 'options']) {
+    for (const key of ['time', 'decision', 'beats', 'tier_lore', 'options', 'judge']) {
         if (Object.hasOwn(input, key)) addWarning(`$.${key}`, `${key} is obsolete and will be removed on import.`);
     }
 
@@ -387,7 +380,6 @@ export function buildJudgePrompt(state, setupInput, latestAssistantMessage) {
         '',
         'Tracked stats:',
         statLines || '- none',
-        setup.judge.prompt_guidance ? `Setup guidance: ${setup.judge.prompt_guidance}` : '',
         '',
         'Already-counted changes:',
         memory || '- none',

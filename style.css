@@ -27,21 +27,7 @@
 }
 
 #mm-panel-launcher {
-    width: 100%;
-    min-height: 38px;
-    margin: 6px 0;
-    padding: 8px 11px;
-    border: 1px solid var(--SmartThemeBorderColor, #586271);
-    border-radius: var(--border-radius, 6px);
-    background: var(--SmartThemeBlurTintColor, rgba(20, 20, 24, 0.88));
-    color: var(--SmartThemeBodyColor, #eee);
-    font: inherit;
-    text-align: left;
     cursor: pointer;
-}
-
-#mm-panel-launcher:hover {
-    filter: brightness(1.12);
 }
 
 #mm-panel-launcher.mm-fallback-launcher {
@@ -50,7 +36,18 @@
     bottom: 10px;
     z-index: 2147483001;
     width: auto;
+    min-height: 38px;
+    padding: 8px 11px;
+    border: 1px solid var(--SmartThemeBorderColor, #586271);
+    border-radius: var(--border-radius, 6px);
+    background: var(--SmartThemeBlurTintColor, rgba(20, 20, 24, 0.88));
+    color: var(--SmartThemeBodyColor, #eee);
+    font: inherit;
     box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+}
+
+#mm-panel-launcher.mm-fallback-launcher:hover {
+    filter: brightness(1.12);
 }
 
 #mm-panel *,
@@ -564,7 +561,6 @@
     text-align: center;
 }
 
-.mm-edit-card > summary,
 #mm-panel summary {
     min-height: 34px;
     cursor: pointer;

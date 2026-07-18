@@ -2,7 +2,7 @@
   "id": "vanity-progression",
   "name": "Vanity Progression",
   "version": "1.0.0",
-  "schema_version": 3,
+  "schema_version": 4,
   "description": "Example hierarchy driven by multiple irreversible transformation stats.",
   "stats": [
     {
@@ -62,8 +62,5 @@
         { "stat": "confidence", "op": ">=", "value": 25 }
       ]
     }
-  ],
-  "judge": {
-    "prompt_guidance": "A change must be concrete, newly established in the latest assistant message, and meaningfully relevant to the selected stat."
-  }
+  ]
 }

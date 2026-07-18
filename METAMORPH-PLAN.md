@@ -70,14 +70,14 @@ The sidebar contains no available changes, embedded lore, effects, undo, or rece
 
 The focused setup schema contains:
 
-- Identity and description
+- Description, with identity and version managed internally
 - Stats
 - Ordered tiers
 - Tier World Info keys
 - Tier conditions using `>=` or `>`
-- Judge guidance
+- Per-stat judge guidance
 
-The editor uses form-based stat, tier, and condition builders. Users can add, remove, and configure the full hierarchy without editing JSON. The setup library is limited to loading, saving, and deleting reusable setups; JSON remains only as an optional import/export format.
+The editor uses form-based stat, tier, and condition builders. Users can add, remove, and configure the full hierarchy without editing JSON. One save action applies the setup to the current chat and updates its reusable library entry. JSON remains only as an optional import/export format.
 
 ## Migration
 
@@ -91,6 +91,8 @@ Schema version 3 removes:
 - Applied changes and undo
 - Recent event history
 - Simultaneously active tiers
+
+Schema version 4 removes setup-wide judge guidance. Internal setup identity and version fields remain in the schema but are no longer exposed in the UI.
 
 Existing stat progress is preserved when the setup ID remains unchanged.
 

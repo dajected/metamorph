@@ -44,7 +44,7 @@ The form-based builder lets you:
 - Reorder later tiers while keeping the starting tier first
 - Set each tier's label, description, and World Info key
 - Add multiple stat threshold conditions to a tier
-- Save the setup to the current chat or reusable setup library
+- Save the setup to the current chat and reusable setup library with one action
 
 The simplified library can load or delete saved setups. JSON is retained only for importing and exporting setups.
 
@@ -90,7 +90,7 @@ Semantic duplicate detection is instructed through the judge prompt using the st
   "id": "vanity-progression",
   "name": "Vanity Progression",
   "version": "1.0.0",
-  "schema_version": 3,
+  "schema_version": 4,
   "description": "Example setup",
   "stats": [
     {
@@ -120,10 +120,7 @@ Semantic duplicate detection is instructed through the judge prompt using the st
         { "stat": "vanity", "op": ">=", "value": 10 }
       ]
     }
-  ],
-  "judge": {
-    "prompt_guidance": "Optional setup-wide judging guidance."
-  }
+  ]
 }
 ```
 
@@ -159,6 +156,6 @@ This runs syntax checks and the deterministic engine test suite.
 
 ## Migration
 
-Schema versions 1 and 2 are migrated to schema version 3. Existing stat values are preserved and clamped to the current stat definitions. Time, autonomy, beats, embedded tier lore, options, effects, applied changes, undo data, and event history are removed.
+Schema versions 1 through 3 are migrated to schema version 4. Existing stat values are preserved and clamped to the current stat definitions. Time, autonomy, beats, embedded tier lore, options, effects, applied changes, undo data, event history, and setup-wide judge guidance are removed.
 
 Existing settings stored under the former extension key are migrated to `metamorph`.
