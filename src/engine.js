@@ -236,6 +236,7 @@ export function normalizeState(input, setupInput) {
         normalized: normalizeChange(entry?.normalized || entry?.description),
         stats: Array.isArray(entry?.stats) ? entry.stats.map(String) : [],
         messageFingerprint: String(entry?.messageFingerprint || ''),
+        active: entry?.active !== false,
     })).filter((entry) => entry.description && entry.normalized) : [];
     next.processedAssistantFingerprints = Array.isArray(next.processedAssistantFingerprints)
         ? next.processedAssistantFingerprints.map(String).slice(-200)
@@ -273,6 +274,16 @@ export function normalizeChange(value) {
         .replace(/[^a-z0-9\s]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
+}
+
+export function setCountedChangeActive(state, normalizedChange, active) {
+    const normalized = normalizeChange(normalizedChange);
+    if (!normalized) return state;
+    const next = clone(state);
+    const entry = (next.countedChanges || []).find((candidate) => candidate.normalized === normalized);
+    if (!entry) return state;
+    entry.active = Boolean(active);
+    return next;
 }
 
 function judgeResults(payload) {
@@ -323,6 +334,7 @@ export function applyJudgeResult(state, payload, setupInput, messageFingerprint)
         normalized: entry.normalized,
         stats: [...entry.stats],
         messageFingerprint: fingerprint,
+        active: true,
     }));
     next.countedChanges = [...(next.countedChanges || []), ...newChanges];
     next.processedAssistantFingerprints = [...priorFingerprints, fingerprint].slice(-200);
@@ -346,18 +358,29 @@ export function clearStateStale(state) {
     return next;
 }
 
-export function buildStateBlock(state, setupInput, settings = {}) {
+export function buildTierTriggerBlock(state, setupInput, settings = {}) {
     if (!state || !setupInput || settings.promptInjectionMode === 'off') return '';
     const { setup } = migrateSetup(setupInput);
     const tier = activeTier(state, setup);
-    const stats = setup.stats.map((stat) => `${stat.label || stat.key}: ${state.stats?.[stat.key] ?? stat.default}`).join(', ');
+    return tier ? `[Metamorph tier: ${tier.world_info_key}]` : '';
+}
+
+export function buildEstablishedStateBlock(state, settings = {}) {
+    if (!state || settings.promptInjectionMode === 'off') return '';
+    const changes = (state.countedChanges || [])
+        .filter((entry) => entry?.active !== false)
+        .map((entry) => String(entry?.description || '').trim())
+        .filter(Boolean);
+    return changes.length
+        ? `[Established transformation changes — portray as current facts: ${changes.join('; ')}.]`
+        : '';
+}
+
+export function buildStateBlock(state, setupInput, settings = {}) {
     return [
-        '[Metamorph]',
-        tier ? `World Info key: ${tier.world_info_key}` : 'World Info key: none',
-        tier ? `Active transformation tier: ${tier.label}` : 'Active transformation tier: none',
-        `Transformation stats: ${stats || 'none'}`,
-        '[/Metamorph]',
-    ].join('\n');
+        buildTierTriggerBlock(state, setupInput, settings),
+        buildEstablishedStateBlock(state, settings),
+    ].filter(Boolean).join('\n');
 }
 
 export function buildJudgePrompt(state, setupInput, latestAssistantMessage) {

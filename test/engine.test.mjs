@@ -5,13 +5,16 @@ import {
     DEFAULT_SETUP,
     activeTier,
     applyJudgeResult,
+    buildEstablishedStateBlock,
     buildJudgePrompt,
     buildStateBlock,
+    buildTierTriggerBlock,
     initialState,
     migrateSetup,
     nextTier,
     normalizeState,
     parseJsonObject,
+    setCountedChangeActive,
     setStat,
     validateSetup,
 } from '../src/engine.js';
@@ -93,6 +96,7 @@ assert.equal(judged.state.stats.vanity, 11, 'two changes for one stat still add 
 assert.equal(judged.state.stats.confidence, 11);
 assert.equal(judged.state.countedChanges.length, 2, 'all distinct changes are remembered');
 assert.deepEqual(judged.state.countedChanges[0].stats.sort(), ['confidence', 'vanity']);
+assert.equal(judged.state.countedChanges[0].active, true, 'newly counted changes enter character context');
 
 const invalidJudgeShape = applyJudgeResult(judged.state, { vanity: 1 }, setup, 'invalid-message');
 assert.match(invalidJudgeShape.error, /results array/);
@@ -115,13 +119,29 @@ const memoryPrompt = buildJudgePrompt(judged.state, setup, 'She wears her red li
 assert.match(memoryPrompt, /Already-counted changes/);
 assert.match(memoryPrompt, /began wearing red lipstick/);
 
-const tierTwoBlock = buildStateBlock(judged.state, setup, { promptInjectionMode: 'compact' });
+const compactSettings = { promptInjectionMode: 'compact' };
+const tierTriggerBlock = buildTierTriggerBlock(judged.state, setup, compactSettings);
+assert.equal(tierTriggerBlock, '[Metamorph tier: METAMORPH_TIER_2]');
+assert.doesNotMatch(tierTriggerBlock, /Tier 2|Vanity|Confidence|\b11\b/);
+
+const establishedStateBlock = buildEstablishedStateBlock(judged.state, compactSettings);
+assert.match(establishedStateBlock, /portray as current facts/i);
+assert.match(establishedStateBlock, /began wearing red lipstick/);
+assert.match(establishedStateBlock, /started wearing decorative jewellery/);
+assert.doesNotMatch(establishedStateBlock, /METAMORPH_TIER/);
+
+const tierTwoBlock = buildStateBlock(judged.state, setup, compactSettings);
 assert.match(tierTwoBlock, /METAMORPH_TIER_2/);
-assert.match(tierTwoBlock, /Active transformation tier: Tier 2/);
-assert.doesNotMatch(tierTwoBlock, /METAMORPH_TIER_1/);
-assert.doesNotMatch(tierTwoBlock, /METAMORPH_TIER_3/);
-assert.doesNotMatch(tierTwoBlock, /Available changes|Recent history|Active transformation lore/i);
+assert.match(tierTwoBlock, /began wearing red lipstick/);
+assert.doesNotMatch(tierTwoBlock, /METAMORPH_TIER_1|METAMORPH_TIER_3/);
+assert.doesNotMatch(tierTwoBlock, /Available changes|Recent history|Active transformation lore|Transformation stats/i);
 assert.equal(buildStateBlock(judged.state, setup, { promptInjectionMode: 'off' }), '');
+
+const lipstickJudgeOnly = setCountedChangeActive(judged.state, 'Began wearing red lipstick!', false);
+assert.equal(lipstickJudgeOnly.countedChanges[0].active, false);
+assert.doesNotMatch(buildEstablishedStateBlock(lipstickJudgeOnly, compactSettings), /red lipstick/);
+assert.match(buildEstablishedStateBlock(lipstickJudgeOnly, compactSettings), /decorative jewellery/);
+assert.match(buildJudgePrompt(lipstickJudgeOnly, setup, 'Another message'), /began wearing red lipstick/, 'inactive facts remain in judge memory');
 
 const legacySetup = {
     ...setup,
@@ -161,6 +181,12 @@ assert.deepEqual(normalized.stats, { vanity: 12, confidence: 10 });
 assert.equal(normalized.activeTierId, 'tier_2');
 assert.equal(Object.hasOwn(normalized, 'eventLog'), false);
 assert.equal(Object.hasOwn(normalized, 'availableOptionIds'), false);
+
+const legacyChangeState = normalizeState({
+    ...legacyState,
+    countedChanges: [{ description: 'legacy lasting change', stats: ['vanity'] }],
+}, setup);
+assert.equal(legacyChangeState.countedChanges[0].active, true, 'legacy counted changes remain established by default');
 
 const invalidOperator = structuredClone(setup);
 invalidOperator.tiers[1].requires[0].op = '<=';

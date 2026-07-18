@@ -13,8 +13,8 @@ It does not decide or apply individual transformation changes. The character mod
 3. Each affected stat increases by exactly one point, with a maximum of one point per stat per assistant message.
 4. A new change may increment several stats when appropriate.
 5. Metamorph selects the highest tier whose conditions are all satisfied.
-6. Only that tier's World Info key is injected into context.
-7. SillyTavern scans the injected key and activates matching World Info entries.
+6. Only that tier's World Info key is exposed to World Info scanning.
+7. SillyTavern activates matching World Info entries, while established changes are injected separately as persistent character facts.
 
 Stats never decrease. Resetting the tracker is the only way to return to lower values.
 
@@ -27,10 +27,10 @@ The sidebar shows:
 - Monotonic stat progress toward the next relevant threshold
 - Every condition for the next tier, with met/unmet status
 - The complete hierarchy marked Passed, Active, or Locked
-- Collapsed context preview and counted-change memory
+- Collapsed context preview and counted-change memory with per-change context toggles
 - Collapsed reset and stop controls
 
-It intentionally has no available-changes, active-lore, effects, undo, or recent-history sections.
+It intentionally has no available-changes, active-lore, effects, undo, or recent-history sections. Counted changes can be excluded from character context without removing them from the judge's deduplication memory.
 
 ## Creating a Setup in the UI
 
@@ -59,6 +59,10 @@ METAMORPH_TIER_2
 Use that exact value as a primary key on the SillyTavern World Info entries that belong to Tier 2. Metamorph registers its context block with World Info scanning enabled, so the current key participates in the normal SillyTavern World Info scan.
 
 Only the current tier's key is injected. Passed and locked tier keys are omitted.
+
+Because earlier tier keys are not present, each tier's World Info content should be cumulative: a Tier 3 entry should include every permission that remains available from Tiers 1 and 2 as well as the new Tier 3 permissions. Phrase these as possibilities rather than a checklist, ask the character to introduce them sparingly and naturally, and prevent the entry from triggering further World Info recursion when appropriate.
+
+Raw stat values are reserved for the helper judge and are not sent to the character model. Metamorph also supplies active counted changes in a separate, non-scannable prompt block so established transformations remain consistent after the originating messages leave context. Untick a superseded or temporary change in the sidebar to keep it in judge memory while removing it from character context.
 
 ## Judge Rules
 

@@ -44,13 +44,12 @@ The counted-change memory is available in a collapsed troubleshooting section, n
 
 ## World Info Integration
 
-Metamorph injects a compact context block containing:
+Metamorph injects two compact context blocks:
 
-- The current tier's exact `world_info_key`
-- The current tier label
-- Current stat values
+- The current tier's exact `world_info_key`, with World Info scanning enabled
+- Active counted changes as established character facts, with World Info scanning disabled
 
-The extension prompt is registered with SillyTavern's World Info scan flag enabled. Only the active tier key is present, so only World Info entries keyed to that tier are eligible through Metamorph.
+Raw stat values and the tier label are not sent to the character model. They remain available to the helper judge and sidebar. Only the active tier key participates in World Info scanning, so only entries keyed to that tier are eligible through Metamorph. Each tier's World Info entry should therefore contain the cumulative permissions still available at that tier.
 
 ## Sidebar Layout
 
@@ -61,7 +60,7 @@ The extension prompt is registered with SillyTavern's World Info scan flag enabl
 5. Next-tier conditions with met/unmet indicators
 6. Compact hierarchy showing Passed, Active, and Locked tiers
 7. Collapsed context preview
-8. Collapsed counted-change memory
+8. Collapsed counted-change memory with controls for excluding superseded facts from character context
 9. Collapsed tracker controls
 
 The sidebar contains no available changes, embedded lore, effects, undo, or recent history.
@@ -105,7 +104,7 @@ Existing stat progress is preserved when the setup ID remains unchanged.
 - A message can add one point to several stats
 - Repeated changes do not increment stats again
 - Rejudging an unchanged message is idempotent
-- Only the active tier key appears in the injected block
-- The injected block is included in SillyTavern World Info scanning
+- Only the active tier key appears in the World Info-scannable block
+- Established changes are injected separately and excluded from World Info scanning
 - No change-selection or history UI remains
 - Desktop sidebar and mobile bottom sheet remain usable and accessible

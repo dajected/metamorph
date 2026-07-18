@@ -1,9 +1,10 @@
-import { bindPanelLauncher, bindPanelLifecycle, syncPanelElement } from './src/panel.js?v=0.6.1';
+import { bindPanelLauncher, bindPanelLifecycle, syncPanelElement } from './src/panel.js?v=0.6.2';
 
 const EXTENSION_NAME = 'Metamorph';
 const MODULE_NAME = 'metamorph';
 const LEGACY_MODULE_NAME = 'transformationDirector';
 const PROMPT_KEY = `${MODULE_NAME}.stateBlock`;
+const ESTABLISHED_STATE_PROMPT_KEY = `${MODULE_NAME}.establishedState`;
 const LEGACY_PROMPT_KEY = `${LEGACY_MODULE_NAME}.stateBlock`;
 const BOOT_RETRY_MS = 500;
 const BOOT_RETRY_LIMIT = 40;
@@ -13,8 +14,10 @@ let DEFAULT_SETUP;
 let activeTier;
 let nextTier;
 let applyJudgeResult;
+let buildEstablishedStateBlock;
 let buildJudgePrompt;
 let buildStateBlock;
+let buildTierTriggerBlock;
 let clearStateStale;
 let clone;
 let initialState;
@@ -24,6 +27,7 @@ let normalizeState;
 let parseJsonObject;
 let passesConditions;
 let setStat;
+let setCountedChangeActive;
 let validateSetup;
 
 const defaultSettings = Object.freeze({
@@ -59,15 +63,17 @@ function cloneValue(value) {
 
 async function loadEngine() {
     if (DEFAULT_SETUP) return;
-    const engine = await import('./src/engine.js?v=0.6.1');
+    const engine = await import('./src/engine.js?v=0.6.2');
     ({
         SCHEMA_VERSION,
         DEFAULT_SETUP,
         activeTier,
         nextTier,
         applyJudgeResult,
+        buildEstablishedStateBlock,
         buildJudgePrompt,
         buildStateBlock,
+        buildTierTriggerBlock,
         clearStateStale,
         clone,
         initialState,
@@ -76,6 +82,7 @@ async function loadEngine() {
         normalizeState,
         parseJsonObject,
         passesConditions,
+        setCountedChangeActive,
         setStat,
         validateSetup,
     } = engine);
@@ -401,7 +408,7 @@ function setupEditorHtml(setup, validation) {
             <label>Setup name<input data-setup-field="name" value="${sanitizeHtml(setupDraft.name)}"></label>
             <label>Description<textarea data-setup-field="description">${sanitizeHtml(setupDraft.description || '')}</textarea></label>
             <div class="mm-builder-section"><div class="mm-builder-title"><div><h4>Stats</h4><div class="mm-muted">Every confirmed new change adds one point.</div></div><button id="mm-add-stat" type="button">Add stat</button></div>${statsBuilderHtml()}</div>
-            <div class="mm-builder-section"><div class="mm-builder-title"><div><h4>Tier hierarchy</h4><div class="mm-muted">The first tier is the starting tier. Later tiers require every listed condition.</div></div><button id="mm-add-tier" type="button">Add tier</button></div>${tiersBuilderHtml()}</div>
+            <div class="mm-builder-section"><div class="mm-builder-title"><div><h4>Tier hierarchy</h4><div class="mm-muted">The first tier is the starting tier. Later tiers require every listed condition. Since only the current key is scanned, make each tier's World Info permissions cumulative.</div></div><button id="mm-add-tier" type="button">Add tier</button></div>${tiersBuilderHtml()}</div>
             <div class="mm-row"><button id="mm-save-setup" type="button">Save setup</button></div>
             <div id="mm-validation-result">${validation ? validationHtml(validation) : ''}</div>
         </section>`;
@@ -780,7 +787,10 @@ function hierarchyHtml(setup, state, current) {
 function countedChangesHtml(state) {
     const changes = state.countedChanges || [];
     if (!changes.length) return '<div class="mm-muted">No changes have been counted yet.</div>';
-    return `<ul class="mm-memory">${changes.map((entry) => `<li><span>${sanitizeHtml(entry.description)}</span><small>${sanitizeHtml((entry.stats || []).join(', '))}</small></li>`).join('')}</ul>`;
+    return `<ul class="mm-memory">${changes.map((entry) => {
+        const active = entry.active !== false;
+        return `<li class="${active ? '' : 'mm-memory-inactive'}"><label><input data-change-active="${sanitizeHtml(entry.normalized)}" type="checkbox" ${active ? 'checked' : ''}><span>${sanitizeHtml(entry.description)}</span></label><small>${sanitizeHtml((entry.stats || []).join(', '))} · ${active ? 'in character context' : 'judge memory only'}</small></li>`;
+    }).join('')}</ul>`;
 }
 
 function debugHtml(state) {
@@ -821,8 +831,8 @@ async function renderPanel() {
         <section class="mm-section"><h3>Progress</h3>${setup.stats.length ? setup.stats.map((stat) => statHtml(stat, state, following)).join('') : '<div class="mm-muted">No stats are configured.</div>'}</section>
         <section class="mm-section"><h3>Next tier${following ? ` · ${sanitizeHtml(following.label)}` : ''}</h3>${following ? (following.requires.length ? following.requires.map((condition) => requirementHtml(condition, state, setup)).join('') : '<div class="mm-muted">No conditions configured.</div>') : '<div class="mm-success">Final tier reached.</div>'}</section>
         <section class="mm-section"><h3>Hierarchy</h3><div class="mm-hierarchy">${hierarchyHtml(setup, state, current)}</div></section>
-        <details class="mm-section mm-collapsible"><summary>Context injection</summary><label class="mm-check"><input id="mm-prompt-enabled" type="checkbox" ${root.binding?.promptInjectionEnabled ? 'checked' : ''}><span>Inject the current tier and scan it for World Info</span></label><div class="mm-row"><button id="mm-toggle-prompt" type="button" aria-expanded="false">Show context</button><button id="mm-copy-prompt" type="button" ${promptBlock ? '' : 'disabled'}>Copy context</button></div><pre id="mm-prompt-block" hidden>${sanitizeHtml(promptBlock || 'Context injection is disabled or empty.')}</pre></details>
-        <details class="mm-section mm-collapsible"><summary>Counted-change memory (${sanitizeHtml((state.countedChanges || []).length)})</summary><div class="mm-muted">Used by the judge to avoid counting the same transformation twice.</div>${countedChangesHtml(state)}</details>
+        <details class="mm-section mm-collapsible"><summary>Context injection</summary><label class="mm-check"><input id="mm-prompt-enabled" type="checkbox" ${root.binding?.promptInjectionEnabled ? 'checked' : ''}><span>Inject the current tier and established changes</span></label><div class="mm-muted">Only the tier key is scanned for World Info. Established changes are supplied separately as persistent character facts.</div><div class="mm-row"><button id="mm-toggle-prompt" type="button" aria-expanded="false">Show context</button><button id="mm-copy-prompt" type="button" ${promptBlock ? '' : 'disabled'}>Copy context</button></div><pre id="mm-prompt-block" hidden>${sanitizeHtml(promptBlock || 'Context injection is disabled or empty.')}</pre></details>
+        <details class="mm-section mm-collapsible"><summary>Counted-change memory (${sanitizeHtml((state.countedChanges || []).length)})</summary><div class="mm-muted">All entries remain in judge memory. Untick a superseded or temporary change to remove it from the character context without allowing it to score again.</div>${countedChangesHtml(state)}</details>
         ${settings.debugMode ? debugHtml(state) : ''}
         <details class="mm-section mm-collapsible mm-danger-zone"><summary>Tracker controls</summary><div class="mm-row"><button id="mm-reset-state" class="mm-danger" type="button">Reset progress</button><button id="mm-stop" class="mm-danger" type="button">Stop tracker</button></div></details>`;
     bindPanelActions();
@@ -841,6 +851,9 @@ function bindPanelActions() {
     panelEl.querySelector('#mm-clear-stale')?.addEventListener('click', async () => updateState(clearStateStale(root.state)));
     panelEl.querySelectorAll('[data-stat-key]').forEach((input) => input.addEventListener('keydown', (event) => { if (event.key === 'Enter') commitStatInput(input); }));
     panelEl.querySelectorAll('[data-stat-apply]').forEach((button) => button.addEventListener('click', () => { const input = panelEl.querySelector(`[data-stat-key="${escapeSelector(button.dataset.statApply)}"]`); if (input) commitStatInput(input); }));
+    panelEl.querySelectorAll('[data-change-active]').forEach((input) => input.addEventListener('change', async (event) => {
+        await updateState(setCountedChangeActive(root.state, event.target.dataset.changeActive, event.target.checked));
+    }));
     panelEl.querySelector('#mm-prompt-enabled')?.addEventListener('change', async (event) => { root.binding.promptInjectionEnabled = event.target.checked; await saveMetadata(); await refreshPromptInjection(); await renderPanel(); });
     panelEl.querySelector('#mm-toggle-prompt')?.addEventListener('click', (event) => { const block = panelEl.querySelector('#mm-prompt-block'); const show = block.hasAttribute('hidden'); block.toggleAttribute('hidden', !show); event.currentTarget.setAttribute('aria-expanded', String(show)); event.currentTarget.textContent = show ? 'Hide context' : 'Show context'; });
     panelEl.querySelector('#mm-copy-prompt')?.addEventListener('click', () => copyText(buildStateBlock(root.state, setup, getSettings())).catch(showError));
@@ -938,7 +951,8 @@ async function refreshPromptInjection() {
     const state = getState();
     const enabled = settings.enabled && root?.binding?.promptInjectionEnabled && setup && state;
     context.setExtensionPrompt(LEGACY_PROMPT_KEY, '', 1, 4, false, 0);
-    context.setExtensionPrompt(PROMPT_KEY, enabled ? buildStateBlock(state, setup, settings) : '', 1, 4, true, 0);
+    context.setExtensionPrompt(PROMPT_KEY, enabled ? buildTierTriggerBlock(state, setup, settings) : '', 1, 4, true, 0);
+    context.setExtensionPrompt(ESTABLISHED_STATE_PROMPT_KEY, enabled ? buildEstablishedStateBlock(state, settings) : '', 1, 4, false, 0);
 }
 
 globalThis.metamorphGenerateInterceptor = async function metamorphGenerateInterceptor(chat, contextSize, abort, type) {
@@ -1058,6 +1072,7 @@ export async function onClean() {
     }
     if (typeof context.setExtensionPrompt === 'function') {
         context.setExtensionPrompt(PROMPT_KEY, '', 1, 4, true, 0);
+        context.setExtensionPrompt(ESTABLISHED_STATE_PROMPT_KEY, '', 1, 4, false, 0);
         context.setExtensionPrompt(LEGACY_PROMPT_KEY, '', 1, 4, false, 0);
     }
     await renderAll();

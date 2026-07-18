@@ -450,6 +450,23 @@
     background: rgba(255, 255, 255, 0.045);
 }
 
+.mm-memory li label {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 7px;
+    margin: 0;
+}
+
+.mm-memory li input {
+    margin-top: 2px;
+}
+
+.mm-memory-inactive span {
+    opacity: 0.58;
+    text-decoration: line-through;
+}
+
 .mm-memory small {
     opacity: 0.65;
 }
