@@ -1,4 +1,4 @@
-import { bindPanelLauncher, bindPanelLifecycle, syncPanelElement } from './src/panel.js?v=0.6.3';
+import { bindPanelLauncher, bindPanelLifecycle, syncPanelElement } from './src/panel.js?v=0.6.4';
 
 const EXTENSION_NAME = 'Metamorph';
 const MODULE_NAME = 'metamorph';
@@ -8,6 +8,34 @@ const ESTABLISHED_STATE_PROMPT_KEY = `${MODULE_NAME}.establishedState`;
 const LEGACY_PROMPT_KEY = `${LEGACY_MODULE_NAME}.stateBlock`;
 const BOOT_RETRY_MS = 500;
 const BOOT_RETRY_LIMIT = 40;
+const JUDGE_JSON_SCHEMA = Object.freeze({
+    name: 'metamorph_judge_result',
+    description: 'New transformation changes found in the latest assistant message.',
+    strict: true,
+    returnInvalid: true,
+    value: {
+        type: 'object',
+        properties: {
+            results: {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    properties: {
+                        stat: { type: 'string' },
+                        new_changes: {
+                            type: 'array',
+                            items: { type: 'string' },
+                        },
+                    },
+                    required: ['stat', 'new_changes'],
+                    additionalProperties: false,
+                },
+            },
+        },
+        required: ['results'],
+        additionalProperties: false,
+    },
+});
 
 let SCHEMA_VERSION;
 let DEFAULT_SETUP;
@@ -64,7 +92,7 @@ function cloneValue(value) {
 
 async function loadEngine() {
     if (DEFAULT_SETUP) return;
-    const engine = await import('./src/engine.js?v=0.6.3');
+    const engine = await import('./src/engine.js?v=0.6.4');
     ({
         SCHEMA_VERSION,
         DEFAULT_SETUP,
@@ -946,6 +974,7 @@ async function runPostReplyWorkflow({ forceJudge = false } = {}) {
         if ((state.processedAssistantFingerprints || []).includes(fingerprint)) return;
         const prompt = buildJudgePrompt(state, setup, latest.text);
         const raw = await generateHelper(prompt);
+        if (settings.debugMode) console.debug(`[${EXTENSION_NAME}] judge response`, raw);
         const parsed = parseJsonObject(raw);
         if (!parsed) throw new Error('The helper judge did not return valid JSON.');
         const result = applyJudgeResult(state, parsed, setup, fingerprint);
@@ -976,10 +1005,25 @@ async function generateHelper(prompt) {
     if (selected.startsWith('cm:')) {
         const service = context.ConnectionManagerRequestService;
         if (!service?.sendRequest) throw new Error('SillyTavern Connection Manager is unavailable.');
-        return String(await service.sendRequest(selected.slice(3), prompt, 500, { stream: false, extractData: true, includePreset: true, includeInstruct: true }) ?? '').trim();
+        const profileId = selected.slice(3);
+        let overridePayload = {};
+        try {
+            const profile = service.getProfile?.(profileId);
+            const api = service.validateProfile?.(profile);
+            if (api?.selected === 'openai') overridePayload = { json_schema: JUDGE_JSON_SCHEMA };
+        } catch (error) {
+            if (settings.debugMode) console.debug(`[${EXTENSION_NAME}] could not inspect helper connection profile`, error);
+        }
+        return await service.sendRequest(
+            profileId,
+            prompt,
+            500,
+            { stream: false, extractData: true, includePreset: true, includeInstruct: true },
+            overridePayload,
+        );
     }
     if (typeof context.generateRaw !== 'function') throw new Error('SillyTavern raw generation is unavailable.');
-    return String(await context.generateRaw({ prompt, responseLength: 500, trimNames: false }) ?? '').trim();
+    return await context.generateRaw({ prompt, responseLength: 500, trimNames: false, jsonSchema: JUDGE_JSON_SCHEMA });
 }
 
 async function markCurrentStateAsStale(reason) {

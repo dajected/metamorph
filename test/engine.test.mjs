@@ -228,6 +228,10 @@ assert.equal(unreachableValidation.valid, false, 'tier thresholds cannot exceed 
 assert.match(unreachableValidation.errors.map((entry) => entry.message).join(' '), /maximum is 30/i);
 
 assert.deepEqual(parseJsonObject('```json\n{"results":[]}\n```'), { results: [] });
+assert.deepEqual(parseJsonObject({ content: '{"results":[]}', reasoning: '' }), { results: [] }, 'Connection Manager extracted responses are unwrapped');
+assert.deepEqual(parseJsonObject({ content: { results: [] }, reasoning: '' }), { results: [] }, 'structured Connection Manager responses are unwrapped');
+assert.deepEqual(parseJsonObject({ results: [] }), { results: [] }, 'already parsed structured responses are accepted');
+assert.equal(parseJsonObject({ content: 'not json', reasoning: '' }), null);
 assert.equal(parseJsonObject('not json'), null);
 
 console.log('engine tests passed');

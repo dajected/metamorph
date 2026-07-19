@@ -486,9 +486,15 @@ export function buildJudgePrompt(state, setupInput, latestAssistantMessage) {
     ].filter(Boolean).join('\n');
 }
 
-export function parseJsonObject(text) {
-    if (!text || typeof text !== 'string') return null;
-    const trimmed = text.trim();
+export function parseJsonObject(value) {
+    if (!value) return null;
+    if (typeof value === 'object') {
+        if (Array.isArray(value)) return null;
+        if (Object.hasOwn(value, 'content')) return parseJsonObject(value.content);
+        return value;
+    }
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
     try {
         const parsed = JSON.parse(trimmed);
         return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
