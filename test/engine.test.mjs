@@ -17,6 +17,7 @@ import {
     setCountedChangeActive,
     setStat,
     validateSetup,
+    validateTierHierarchy,
 } from '../src/engine.js';
 
 assert.equal(MODULE_NAME, 'metamorph');
@@ -197,6 +198,34 @@ assert.match(invalidValidation.errors.map((entry) => entry.message).join(' '), /
 const conditionlessLaterTier = structuredClone(setup);
 conditionlessLaterTier.tiers[1].requires = [];
 assert.equal(validateSetup(conditionlessLaterTier).valid, false);
+
+const reversedHierarchy = structuredClone(setup);
+reversedHierarchy.tiers[1].requires[0].value = 20;
+reversedHierarchy.tiers[2].requires[0].value = 10;
+const reversedValidation = validateSetup(reversedHierarchy);
+assert.equal(reversedValidation.valid, false, 'later thresholds cannot decrease');
+assert.match(reversedValidation.errors.map((entry) => entry.message).join(' '), /vanity threshold \(10\) must be higher/i);
+
+const equalHierarchy = structuredClone(setup);
+equalHierarchy.tiers[2].requires[0].value = 10;
+assert.equal(validateSetup(equalHierarchy).valid, false, 'later thresholds must be strictly higher');
+
+const nonCumulativeHierarchy = structuredClone(setup);
+nonCumulativeHierarchy.tiers[2].requires = nonCumulativeHierarchy.tiers[2].requires.filter((condition) => condition.stat !== 'confidence');
+const nonCumulativeValidation = validateSetup(nonCumulativeHierarchy);
+assert.equal(nonCumulativeValidation.valid, false, 'later tiers must retain preceding conditions');
+assert.match(nonCumulativeValidation.errors.map((entry) => entry.message).join(' '), /must keep the confidence condition/i);
+
+const duplicateCondition = structuredClone(setup);
+duplicateCondition.tiers[1].requires.push({ stat: 'vanity', op: '>=', value: 15 });
+assert.equal(validateSetup(duplicateCondition).valid, false, 'one tier cannot contain duplicate stat conditions');
+assert.equal(validateTierHierarchy(setup.tiers).length, 0, 'valid hierarchies have no ordering errors');
+
+const unreachableHierarchy = structuredClone(setup);
+unreachableHierarchy.tiers[2].requires[0].value = 31;
+const unreachableValidation = validateSetup(unreachableHierarchy);
+assert.equal(unreachableValidation.valid, false, 'tier thresholds cannot exceed the stat maximum');
+assert.match(unreachableValidation.errors.map((entry) => entry.message).join(' '), /maximum is 30/i);
 
 assert.deepEqual(parseJsonObject('```json\n{"results":[]}\n```'), { results: [] });
 assert.equal(parseJsonObject('not json'), null);

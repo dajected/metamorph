@@ -41,7 +41,7 @@ The form-based builder lets you:
 - Add and remove tracked stats
 - Set each stat's label, key, maximum, starting value, description, and judge guidance
 - Add and remove hierarchy tiers
-- Reorder later tiers while keeping the starting tier first
+- Reorder later tiers while keeping the starting tier first and preserving ascending thresholds
 - Set each tier's label, description, and World Info key
 - Add multiple stat threshold conditions to a tier
 - Save the setup to the current chat and reusable setup library with one action
@@ -130,7 +130,7 @@ Semantic duplicate detection is instructed through the judge prompt using the st
 
 Tiers are evaluated in array order. The highest tier whose conditions all pass is active. Because stats only increase, tier conditions support only `>=` and `>`.
 
-The first tier should normally have no conditions. Later tiers should contain cumulative thresholds; upper bounds are unnecessary because a later satisfied tier replaces the earlier one.
+The first tier should normally have no conditions. Later tiers must contain cumulative thresholds: every condition from the preceding tier must remain present with a strictly higher value. A tier may add conditions for more stats, which later tiers must then retain and increase. The editor blocks reordering a valid hierarchy when the result would violate these rules, and the same validation applies to imported JSON. Upper bounds are unnecessary because a later satisfied tier replaces the earlier one.
 
 ## Installation
 

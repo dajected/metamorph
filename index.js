@@ -1,4 +1,4 @@
-import { bindPanelLauncher, bindPanelLifecycle, syncPanelElement } from './src/panel.js?v=0.6.2';
+import { bindPanelLauncher, bindPanelLifecycle, syncPanelElement } from './src/panel.js?v=0.6.3';
 
 const EXTENSION_NAME = 'Metamorph';
 const MODULE_NAME = 'metamorph';
@@ -29,6 +29,7 @@ let passesConditions;
 let setStat;
 let setCountedChangeActive;
 let validateSetup;
+let validateTierHierarchy;
 
 const defaultSettings = Object.freeze({
     enabled: true,
@@ -63,7 +64,7 @@ function cloneValue(value) {
 
 async function loadEngine() {
     if (DEFAULT_SETUP) return;
-    const engine = await import('./src/engine.js?v=0.6.2');
+    const engine = await import('./src/engine.js?v=0.6.3');
     ({
         SCHEMA_VERSION,
         DEFAULT_SETUP,
@@ -85,6 +86,7 @@ async function loadEngine() {
         setCountedChangeActive,
         setStat,
         validateSetup,
+        validateTierHierarchy,
     } = engine);
 }
 
@@ -355,16 +357,21 @@ function newTier() {
     const number = (setupDraft?.tiers?.length || 0) + 1;
     const previous = setupDraft?.tiers?.at(-1);
     const previousThresholds = new Map((previous?.requires || []).map((condition) => [condition.stat, Number(condition.value)]));
+    const requires = (setupDraft?.stats || []).map((stat) => {
+        const previousValue = previousThresholds.get(stat.key) ?? Number(stat.default) ?? 0;
+        return {
+            stat: stat.key,
+            op: '>=',
+            value: Math.min(Number(stat.max), previousValue + 10),
+        };
+    });
+    if (requires.some((condition) => previousThresholds.has(condition.stat) && condition.value <= previousThresholds.get(condition.stat))) return null;
     return {
         id: `tier_${number}`,
         label: `Tier ${number}`,
         description: '',
         world_info_key: `METAMORPH_TIER_${number}`,
-        requires: (setupDraft?.stats || []).map((stat) => ({
-            stat: stat.key,
-            op: '>=',
-            value: (previousThresholds.get(stat.key) ?? Number(stat.default) ?? 0) + 10,
-        })),
+        requires,
     };
 }
 
@@ -432,10 +439,18 @@ function statOptions(selected) {
 function conditionsBuilderHtml(tier, tierIndex) {
     if (tierIndex === 0) return '<div class="mm-muted">Starting tier — always active until Tier 2 is reached.</div>';
     if (!tier.requires?.length) return '<div class="mm-empty-builder">No conditions yet.</div>';
-    return `<div class="mm-condition-list">${tier.requires.map((condition, conditionIndex) => `
+    return `<div class="mm-condition-list">${tier.requires.map((condition, conditionIndex) => {
+        const stat = setupDraft.stats.find((candidate) => candidate.key === condition.stat);
+        const previousCondition = setupDraft.tiers[tierIndex - 1]?.requires?.find((candidate) => candidate.stat === condition.stat);
+        const minimum = previousCondition ? Number(previousCondition.value) + 1 : Number(stat?.default ?? stat?.min ?? 0) + 1;
+        const thresholdTitle = previousCondition
+            ? `Must be higher than the preceding tier's ${condition.stat} threshold`
+            : `Must be higher than ${condition.stat}'s starting value`;
+        return `
         <div class="mm-condition-row" data-tier-index="${tierIndex}" data-condition-index="${conditionIndex}">
-            <select data-condition-field="stat" aria-label="Condition stat">${statOptions(condition.stat)}</select><span>reaches</span><input data-condition-field="value" aria-label="Condition threshold" type="number" min="0" value="${sanitizeHtml(condition.value)}"><button class="mm-danger" data-remove-condition="${conditionIndex}" type="button">Remove</button>
-        </div>`).join('')}</div>`;
+            <select data-condition-field="stat" aria-label="Condition stat">${statOptions(condition.stat)}</select><span>reaches</span><input data-condition-field="value" aria-label="Condition threshold" type="number" min="${sanitizeHtml(minimum)}" max="${sanitizeHtml(stat?.max ?? '')}" value="${sanitizeHtml(condition.value)}" title="${sanitizeHtml(thresholdTitle)}"><button class="mm-danger" data-remove-condition="${conditionIndex}" type="button">Remove</button>
+        </div>`;
+    }).join('')}</div>`;
 }
 
 function tiersBuilderHtml() {
@@ -467,7 +482,12 @@ function bindSettingsActions() {
     settingsEl.querySelector('#mm-save-setup')?.addEventListener('click', saveSetupDraft);
     settingsEl.querySelector('#mm-export-setup')?.addEventListener('click', () => setupDraft && downloadJson(`${slugify(setupDraft.name, 'metamorph-setup')}.json`, migrateSetup(setupDraft).setup));
     settingsEl.querySelector('#mm-add-stat')?.addEventListener('click', () => { setupDraft.stats.push(newStat()); renderSettings(); });
-    settingsEl.querySelector('#mm-add-tier')?.addEventListener('click', () => { setupDraft.tiers.push(newTier()); renderSettings(); });
+    settingsEl.querySelector('#mm-add-tier')?.addEventListener('click', () => {
+        const tier = newTier();
+        if (!tier) return notify('A new tier cannot be added because at least one condition is already at its stat maximum.', 'error');
+        setupDraft.tiers.push(tier);
+        renderSettings(validateSetup(setupDraft));
+    });
     bindSetupBuilderActions();
 }
 
@@ -500,18 +520,46 @@ function bindSetupBuilderActions() {
                 const field = input.dataset.conditionField;
                 setupDraft.tiers[tierIndex].requires[conditionIndex][field] = field === 'value' ? Number(input.value) : input.value;
                 setupDraft.tiers[tierIndex].requires[conditionIndex].op = '>=';
+                showEditorValidation(validateSetup(setupDraft));
             }));
         });
-        card.querySelectorAll('[data-remove-condition]').forEach((button) => button.addEventListener('click', () => { setupDraft.tiers[tierIndex].requires.splice(Number(button.dataset.removeCondition), 1); renderSettings(); }));
+        card.querySelectorAll('[data-remove-condition]').forEach((button) => button.addEventListener('click', () => {
+            setupDraft.tiers[tierIndex].requires.splice(Number(button.dataset.removeCondition), 1);
+            renderSettings(validateSetup(setupDraft));
+        }));
         card.querySelector('[data-add-condition]')?.addEventListener('click', () => {
             if (!setupDraft.stats.length) return notify('Add a stat before adding tier conditions.', 'error');
-            setupDraft.tiers[tierIndex].requires.push({ stat: setupDraft.stats[0].key, op: '>=', value: 10 });
-            renderSettings();
+            const usedStats = new Set(setupDraft.tiers[tierIndex].requires.map((condition) => condition.stat));
+            const stat = setupDraft.stats.find((candidate) => !usedStats.has(candidate.key));
+            if (!stat) return notify('This tier already has a condition for every stat.', 'error');
+            const previousCondition = setupDraft.tiers[tierIndex - 1]?.requires?.find((condition) => condition.stat === stat.key);
+            const previousValue = Number(previousCondition?.value ?? stat.default ?? stat.min ?? 0);
+            const value = Math.min(Number(stat.max), previousValue + 10);
+            if (value <= previousValue) return notify(`${stat.label || stat.key} cannot increase beyond ${stat.max}.`, 'error');
+            setupDraft.tiers[tierIndex].requires.push({ stat: stat.key, op: '>=', value });
+            renderSettings(validateSetup(setupDraft));
         });
     });
-    settingsEl.querySelectorAll('[data-remove-tier]').forEach((button) => button.addEventListener('click', () => { setupDraft.tiers.splice(Number(button.dataset.removeTier), 1); renderSettings(); }));
-    settingsEl.querySelectorAll('[data-move-tier-up]').forEach((button) => button.addEventListener('click', () => { const index = Number(button.dataset.moveTierUp); [setupDraft.tiers[index - 1], setupDraft.tiers[index]] = [setupDraft.tiers[index], setupDraft.tiers[index - 1]]; renderSettings(); }));
-    settingsEl.querySelectorAll('[data-move-tier-down]').forEach((button) => button.addEventListener('click', () => { const index = Number(button.dataset.moveTierDown); [setupDraft.tiers[index + 1], setupDraft.tiers[index]] = [setupDraft.tiers[index], setupDraft.tiers[index + 1]]; renderSettings(); }));
+    settingsEl.querySelectorAll('[data-remove-tier]').forEach((button) => button.addEventListener('click', () => {
+        setupDraft.tiers.splice(Number(button.dataset.removeTier), 1);
+        renderSettings(validateSetup(setupDraft));
+    }));
+    settingsEl.querySelectorAll('[data-move-tier-up]').forEach((button) => button.addEventListener('click', () => moveTier(Number(button.dataset.moveTierUp), -1)));
+    settingsEl.querySelectorAll('[data-move-tier-down]').forEach((button) => button.addEventListener('click', () => moveTier(Number(button.dataset.moveTierDown), 1)));
+}
+
+function moveTier(index, offset) {
+    const destination = index + offset;
+    if (index <= 0 || destination <= 0 || destination >= setupDraft.tiers.length) return;
+    const existingErrors = validateTierHierarchy(setupDraft.tiers);
+    [setupDraft.tiers[destination], setupDraft.tiers[index]] = [setupDraft.tiers[index], setupDraft.tiers[destination]];
+    const errors = validateTierHierarchy(setupDraft.tiers);
+    if (!existingErrors.length && errors.length) {
+        [setupDraft.tiers[destination], setupDraft.tiers[index]] = [setupDraft.tiers[index], setupDraft.tiers[destination]];
+        notify(`That order is not valid: ${errors[0].message}`, 'error');
+        return;
+    }
+    renderSettings(validateSetup(setupDraft));
 }
 
 async function refreshConnectionProfiles() {

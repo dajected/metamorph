@@ -112,11 +112,13 @@ export function validateSetup(input) {
     if (!setup.tiers.length) addError('$.tiers', 'At least one hierarchy tier is required.');
 
     const statKeys = new Set();
+    const statDefinitions = new Map();
     setup.stats.forEach((stat, index) => {
         const path = `$.stats[${index}]`;
         if (!stat.key) addError(`${path}.key`, 'Stat key is required.');
         if (statKeys.has(stat.key)) addError(`${path}.key`, `Duplicate stat key: ${stat.key}`);
         if (stat.key) statKeys.add(stat.key);
+        if (stat.key && !statDefinitions.has(stat.key)) statDefinitions.set(stat.key, stat);
         if (!Number.isFinite(stat.min) || !Number.isFinite(stat.max)) addError(path, 'Stat min and max must be numeric.');
         else if (stat.min >= stat.max) addError(path, 'Stat min must be lower than max.');
         if (!Number.isFinite(stat.default) || stat.default < stat.min || stat.default > stat.max) {
@@ -134,15 +136,82 @@ export function validateSetup(input) {
         if (!tier.world_info_key) addError(`${path}.world_info_key`, 'World Info key is required.');
         if (tierKeys.has(tier.world_info_key)) addError(`${path}.world_info_key`, `Duplicate World Info key: ${tier.world_info_key}`);
         if (tier.world_info_key) tierKeys.add(tier.world_info_key);
-        validateConditions(tier.requires, `${path}.requires`, statKeys, addError);
+        validateConditions(tier.requires, `${path}.requires`, statDefinitions, addError);
         if (index === 0 && tier.requires.length) addWarning(`${path}.requires`, 'The first tier normally has no conditions so the hierarchy always has an active tier.');
         if (index > 0 && !tier.requires.length) addError(`${path}.requires`, 'Every tier after the starting tier needs at least one condition.');
     });
 
+    for (const error of validateTierHierarchy(setup.tiers)) {
+        addError(error.path, error.message, error.suggestedFix);
+    }
+
     return { valid: errors.length === 0, errors, warnings, setup };
 }
 
-function validateConditions(conditions, path, statKeys, addError) {
+/**
+ * Validate the ordering rules that make a monotonic tier hierarchy meaningful.
+ * This is exported separately so the setup editor can reject an invalid reorder
+ * without treating unrelated, in-progress form fields as reorder failures.
+ */
+export function validateTierHierarchy(tiers) {
+    const errors = [];
+    const conditionMaps = [];
+
+    for (const [tierIndex, tier] of (Array.isArray(tiers) ? tiers : []).entries()) {
+        const conditions = Array.isArray(tier?.requires) ? tier.requires : [];
+        const byStat = new Map();
+        for (const [conditionIndex, condition] of conditions.entries()) {
+            const stat = String(condition?.stat || '');
+            if (!stat || !Number.isFinite(Number(condition?.value))) continue;
+            if (byStat.has(stat)) {
+                errors.push({
+                    path: `$.tiers[${tierIndex}].requires[${conditionIndex}].stat`,
+                    message: `${tier?.label || tier?.id || `Tier ${tierIndex + 1}`} has more than one ${stat} condition.`,
+                    suggestedFix: 'Keep one threshold per stat in each tier.',
+                });
+                continue;
+            }
+            byStat.set(stat, { condition, conditionIndex });
+        }
+        conditionMaps.push(byStat);
+    }
+
+    // Tier 1 is the unconditional starting tier. Starting with Tier 3, each
+    // tier must be a strictly harder version of the preceding tier.
+    for (let tierIndex = 2; tierIndex < conditionMaps.length; tierIndex += 1) {
+        const previousTier = tiers[tierIndex - 1];
+        const tier = tiers[tierIndex];
+        const previousConditions = conditionMaps[tierIndex - 1];
+        const conditions = conditionMaps[tierIndex];
+
+        for (const [stat, previous] of previousConditions) {
+            const current = conditions.get(stat);
+            const tierName = tier?.label || tier?.id || `Tier ${tierIndex + 1}`;
+            const previousName = previousTier?.label || previousTier?.id || `Tier ${tierIndex}`;
+            const previousValue = Number(previous.condition.value);
+            if (!current) {
+                errors.push({
+                    path: `$.tiers[${tierIndex}].requires`,
+                    message: `${tierName} must keep the ${stat} condition from ${previousName}.`,
+                    suggestedFix: `Add a ${stat} threshold higher than ${previousValue}.`,
+                });
+                continue;
+            }
+            const currentValue = Number(current.condition.value);
+            if (currentValue <= previousValue) {
+                errors.push({
+                    path: `$.tiers[${tierIndex}].requires[${current.conditionIndex}].value`,
+                    message: `${tierName}'s ${stat} threshold (${currentValue}) must be higher than ${previousName}'s threshold (${previousValue}).`,
+                    suggestedFix: `Use a value greater than ${previousValue}, or restore the tier order.`,
+                });
+            }
+        }
+    }
+
+    return errors;
+}
+
+function validateConditions(conditions, path, statDefinitions, addError) {
     if (!Array.isArray(conditions)) {
         addError(path, 'Conditions must be an array.');
         return;
@@ -150,9 +219,14 @@ function validateConditions(conditions, path, statKeys, addError) {
     const operators = new Set(['>', '>=']);
     conditions.forEach((condition, index) => {
         const conditionPath = `${path}[${index}]`;
-        if (!statKeys.has(condition.stat)) addError(`${conditionPath}.stat`, `Unknown stat: ${condition.stat}`);
+        const stat = statDefinitions.get(condition.stat);
+        if (!stat) addError(`${conditionPath}.stat`, `Unknown stat: ${condition.stat}`);
         if (!operators.has(condition.op)) addError(`${conditionPath}.op`, 'Tier conditions must use > or >= because stats never decrease.');
-        if (!Number.isFinite(Number(condition.value))) addError(`${conditionPath}.value`, 'Condition value must be numeric.');
+        const value = Number(condition.value);
+        if (!Number.isFinite(value)) addError(`${conditionPath}.value`, 'Condition value must be numeric.');
+        else if (stat && ((condition.op === '>=' && value > stat.max) || (condition.op === '>' && value >= stat.max))) {
+            addError(`${conditionPath}.value`, `${stat.label || stat.key} cannot reach this threshold because its maximum is ${stat.max}.`);
+        }
     });
 }
 
