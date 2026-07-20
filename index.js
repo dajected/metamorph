@@ -1,4 +1,5 @@
-import { bindPanelLauncher, bindPanelLifecycle, syncPanelElement } from './src/panel.js?v=0.6.4';
+import { buildChatKey, createChatStore, ensureChatRecord, isChatStore, migrateChatStore, moveChatRecord } from './src/chat-store.js?v=0.6.5';
+import { bindPanelLauncher, bindPanelLifecycle, syncPanelElement } from './src/panel.js?v=0.6.5';
 
 const EXTENSION_NAME = 'Metamorph';
 const MODULE_NAME = 'metamorph';
@@ -92,7 +93,7 @@ function cloneValue(value) {
 
 async function loadEngine() {
     if (DEFAULT_SETUP) return;
-    const engine = await import('./src/engine.js?v=0.6.4');
+    const engine = await import('./src/engine.js?v=0.6.5');
     ({
         SCHEMA_VERSION,
         DEFAULT_SETUP,
@@ -147,7 +148,11 @@ function saveSettings() {
     ctx().saveSettingsDebounced?.();
 }
 
-function getRoot(create = true) {
+function getCurrentChatKey(context = ctx(), chatId = context.getCurrentChatId?.() ?? context.chatId, identity = {}) {
+    return buildChatKey(context, chatId, identity);
+}
+
+function getChatStore(create = true) {
     const context = ctx();
     if (!context.chatMetadata) return null;
     if (!context.chatMetadata[MODULE_NAME] && context.chatMetadata[LEGACY_MODULE_NAME]) {
@@ -155,12 +160,41 @@ function getRoot(create = true) {
         delete context.chatMetadata[LEGACY_MODULE_NAME];
         legacyChatMigrated = true;
     }
-    if (create) context.chatMetadata[MODULE_NAME] ||= {};
-    return context.chatMetadata[MODULE_NAME] || null;
+    const chatKey = getCurrentChatKey(context);
+    const existing = context.chatMetadata[MODULE_NAME];
+    if (!existing && !create) return null;
+    if (!existing) {
+        context.chatMetadata[MODULE_NAME] = createChatStore();
+        legacyChatMigrated = true;
+    } else if (!isChatStore(existing)) {
+        const migration = migrateChatStore(existing, chatKey);
+        context.chatMetadata[MODULE_NAME] = migration.store;
+        legacyChatMigrated ||= migration.migrated;
+    }
+    return context.chatMetadata[MODULE_NAME];
 }
 
-async function saveMetadata() {
+function getRoot(create = true) {
+    const store = getChatStore(create);
+    const chatKey = getCurrentChatKey();
+    if (!store || !chatKey) return null;
+    if (!store.chats[chatKey] && !create) return null;
+    return ensureChatRecord(store, chatKey, initialState).record;
+}
+
+async function saveMetadata(expectedChatKey = getCurrentChatKey()) {
+    if (expectedChatKey && expectedChatKey !== getCurrentChatKey()) return false;
     await ctx().saveMetadata?.();
+    return true;
+}
+
+async function prepareCurrentChatData() {
+    const store = getChatStore(false);
+    const chatKey = getCurrentChatKey();
+    if (!store || !chatKey || store.chats[chatKey]) return false;
+    ensureChatRecord(store, chatKey, initialState);
+    await saveMetadata(chatKey);
+    return true;
 }
 
 async function persistLegacyStorageMigration() {
@@ -200,6 +234,7 @@ function isGroupChat() {
 }
 
 async function migrateCurrentChatData() {
+    const chatKey = getCurrentChatKey();
     const root = getRoot(false);
     if (!root?.setup) return false;
     const original = cloneValue(root);
@@ -218,7 +253,8 @@ async function migrateCurrentChatData() {
         if (JSON.stringify(original) !== JSON.stringify(root)) await saveMetadata();
         return true;
     } catch (error) {
-        ctx().chatMetadata[MODULE_NAME] = original;
+        const store = getChatStore(false);
+        if (store && chatKey) store.chats[chatKey] = original;
         notify(`Could not migrate this chat's transformation data: ${error.message}`, 'error');
         return false;
     }
@@ -920,43 +956,60 @@ function bindPanelHeader() {
 
 function bindPanelActions() {
     bindPanelHeader();
+    const panelChatKey = getCurrentChatKey();
     const root = getRoot(false);
     const setup = getSetup();
     if (!root || !setup) return;
     panelEl.querySelector('#mm-rejudge-stale')?.addEventListener('click', () => runPostReplyWorkflow({ forceJudge: true }));
-    panelEl.querySelector('#mm-clear-stale')?.addEventListener('click', async () => updateState(clearStateStale(root.state)));
-    panelEl.querySelectorAll('[data-stat-key]').forEach((input) => input.addEventListener('keydown', (event) => { if (event.key === 'Enter') commitStatInput(input); }));
-    panelEl.querySelectorAll('[data-stat-apply]').forEach((button) => button.addEventListener('click', () => { const input = panelEl.querySelector(`[data-stat-key="${escapeSelector(button.dataset.statApply)}"]`); if (input) commitStatInput(input); }));
+    panelEl.querySelector('#mm-clear-stale')?.addEventListener('click', async () => updateState(clearStateStale(root.state), panelChatKey));
+    panelEl.querySelectorAll('[data-stat-key]').forEach((input) => input.addEventListener('keydown', (event) => { if (event.key === 'Enter') commitStatInput(input, panelChatKey); }));
+    panelEl.querySelectorAll('[data-stat-apply]').forEach((button) => button.addEventListener('click', () => { const input = panelEl.querySelector(`[data-stat-key="${escapeSelector(button.dataset.statApply)}"]`); if (input) commitStatInput(input, panelChatKey); }));
     panelEl.querySelectorAll('[data-change-active]').forEach((input) => input.addEventListener('change', async (event) => {
-        await updateState(setCountedChangeActive(root.state, event.target.dataset.changeActive, event.target.checked));
+        await updateState(setCountedChangeActive(root.state, event.target.dataset.changeActive, event.target.checked), panelChatKey);
     }));
-    panelEl.querySelector('#mm-prompt-enabled')?.addEventListener('change', async (event) => { root.binding.promptInjectionEnabled = event.target.checked; await saveMetadata(); await refreshPromptInjection(); await renderPanel(); });
+    panelEl.querySelector('#mm-prompt-enabled')?.addEventListener('change', async (event) => {
+        if (panelChatKey !== getCurrentChatKey()) return renderPanel();
+        root.binding.promptInjectionEnabled = event.target.checked;
+        await saveMetadata(panelChatKey);
+        await refreshPromptInjection();
+        await renderPanel();
+    });
     panelEl.querySelector('#mm-toggle-prompt')?.addEventListener('click', (event) => { const block = panelEl.querySelector('#mm-prompt-block'); const show = block.hasAttribute('hidden'); block.toggleAttribute('hidden', !show); event.currentTarget.setAttribute('aria-expanded', String(show)); event.currentTarget.textContent = show ? 'Hide context' : 'Show context'; });
     panelEl.querySelector('#mm-copy-prompt')?.addEventListener('click', () => copyText(buildStateBlock(root.state, setup, getSettings())).catch(showError));
-    panelEl.querySelector('#mm-reset-state')?.addEventListener('click', async () => { if (!confirm('Reset all transformation progress and counted-change memory for this chat?')) return; root.state = initialState(setup); await saveMetadata(); await refreshPromptInjection(); await renderPanel(); });
+    panelEl.querySelector('#mm-reset-state')?.addEventListener('click', async () => {
+        if (!confirm('Reset all transformation progress and counted-change memory for this chat?')) return;
+        if (panelChatKey !== getCurrentChatKey()) return renderPanel();
+        root.state = initialState(setup);
+        await saveMetadata(panelChatKey);
+        await refreshPromptInjection();
+        await renderPanel();
+    });
     panelEl.querySelector('#mm-stop')?.addEventListener('click', stopTracker);
 }
 
-async function commitStatInput(input) {
+async function commitStatInput(input, expectedChatKey = getCurrentChatKey()) {
+    if (expectedChatKey !== getCurrentChatKey()) return renderPanel();
     const result = setStat(getState(), input.dataset.statKey, Number(input.value), getSetup());
     if (result.error) {
         input.value = getState().stats[input.dataset.statKey];
         return notify(result.error, 'error');
     }
-    await updateState(result.state);
+    await updateState(result.state, expectedChatKey);
 }
 
-async function updateState(state) {
+async function updateState(state, expectedChatKey = getCurrentChatKey()) {
+    if (expectedChatKey !== getCurrentChatKey()) return renderPanel();
     const root = getRoot(false);
     if (!root) return;
     root.state = state;
-    await saveMetadata();
+    await saveMetadata(expectedChatKey);
     await refreshPromptInjection();
     await renderPanel();
 }
 
 async function runPostReplyWorkflow({ forceJudge = false } = {}) {
     if (postReplyBusy) return;
+    const workflowChatKey = getCurrentChatKey();
     postReplyBusy = true;
     await renderPanel();
     try {
@@ -974,21 +1027,23 @@ async function runPostReplyWorkflow({ forceJudge = false } = {}) {
         if ((state.processedAssistantFingerprints || []).includes(fingerprint)) return;
         const prompt = buildJudgePrompt(state, setup, latest.text);
         const raw = await generateHelper(prompt);
+        if (workflowChatKey !== getCurrentChatKey()) return;
         if (settings.debugMode) console.debug(`[${EXTENSION_NAME}] judge response`, raw);
         const parsed = parseJsonObject(raw);
         if (!parsed) throw new Error('The helper judge did not return valid JSON.');
         const result = applyJudgeResult(state, parsed, setup, fingerprint);
         if (result.error) throw new Error(result.error);
         root.state = result.state;
-        await saveMetadata();
+        await saveMetadata(workflowChatKey);
         await refreshPromptInjection();
         const increments = Object.keys(result.increments || {});
         notify(increments.length ? `New change counted for: ${increments.join(', ')}.` : 'No new transformation change found.');
     } catch (error) {
+        if (workflowChatKey !== getCurrentChatKey()) return;
         const root = getRoot(false);
         if (root?.state) {
             root.state.lastError = { type: 'judge_error', message: error.message, at: new Date().toISOString() };
-            await saveMetadata();
+            await saveMetadata(workflowChatKey);
         }
         notify(`Judge failed: ${error.message}`, 'error');
     } finally {
@@ -1027,11 +1082,25 @@ async function generateHelper(prompt) {
 }
 
 async function markCurrentStateAsStale(reason) {
+    const chatKey = getCurrentChatKey();
     const root = getRoot(false);
     if (!root?.state || root.state.stale?.reason === reason) return;
     root.state = markStateStale(root.state, reason);
-    await saveMetadata();
+    await saveMetadata(chatKey);
     await renderPanel();
+}
+
+async function handleChatRenamed(data = {}) {
+    const context = ctx();
+    const store = getChatStore(false);
+    if (!store) return;
+    const identity = { groupId: data.groupId, avatarId: data.avatarId };
+    const oldChatKey = getCurrentChatKey(context, data.oldFileName, identity);
+    const newChatKey = getCurrentChatKey(context, data.newFileName, identity);
+    if (!moveChatRecord(store, oldChatKey, newChatKey)) return;
+    await saveMetadata(newChatKey);
+    setupDraftRoot = null;
+    await renderAll();
 }
 
 async function refreshPromptInjection() {
@@ -1073,7 +1142,14 @@ function registerEvents() {
     const source = context.eventSource;
     if (!source?.on) return false;
     onEvent(source, events.APP_READY, renderAll);
-    onEvent(source, events.CHAT_CHANGED, async () => { await migrateCurrentChatData(); await persistLegacyStorageMigration(); await refreshPromptInjection(); await renderAll(); });
+    onEvent(source, events.CHAT_CHANGED, async () => {
+        await prepareCurrentChatData();
+        await migrateCurrentChatData();
+        await persistLegacyStorageMigration();
+        await refreshPromptInjection();
+        await renderAll();
+    });
+    onEvent(source, events.CHAT_RENAMED, handleChatRenamed);
     onEvent(source, events.MESSAGE_RECEIVED, () => runPostReplyWorkflow());
     onEvent(source, events.CHARACTER_MESSAGE_RENDERED, () => runPostReplyWorkflow());
     for (const [key, reason] of [
@@ -1115,6 +1191,7 @@ async function init() {
         getSettings();
         mountSettings();
         registerEvents();
+        await prepareCurrentChatData();
         await migrateCurrentChatData();
         await persistLegacyStorageMigration();
         await refreshPromptInjection();

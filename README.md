@@ -18,6 +18,8 @@ It does not decide or apply individual transformation changes. The character mod
 
 Stats never decrease. Resetting the tracker is the only way to return to lower values.
 
+Progress and counted-change memory are stored separately for each SillyTavern chat. A duplicated or branched chat may inherit the tracker setup, but it starts with fresh progress and can be edited or reset without changing the source chat.
+
 ## Sidebar
 
 The sidebar shows:
@@ -163,3 +165,5 @@ This runs syntax checks and the deterministic engine test suite.
 Schema versions 1 through 3 are migrated to schema version 4. Existing stat values are preserved and clamped to the current stat definitions. Time, autonomy, beats, embedded tier lore, options, effects, applied changes, undo data, event history, and setup-wide judge guidance are removed.
 
 Existing settings stored under the former extension key are migrated to `metamorph`.
+
+Existing tracker data is migrated into the per-chat store on first load. Current progress is preserved for that chat; subsequent duplicated or branched chats receive independent state.

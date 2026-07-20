@@ -1,11 +1,11 @@
 {
   "name": "metamorph",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check index.js && node --check src/engine.js && node --check src/panel.js",
-    "test": "node test/engine.test.mjs && node test/panel.test.mjs",
-    "verify": "node --check index.js && node --check src/engine.js && node --check src/panel.js && node test/engine.test.mjs && node test/panel.test.mjs"
+    "check": "node --check index.js && node --check src/engine.js && node --check src/chat-store.js && node --check src/panel.js",
+    "test": "node test/engine.test.mjs && node test/chat-store.test.mjs && node test/panel.test.mjs",
+    "verify": "node --check index.js && node --check src/engine.js && node --check src/chat-store.js && node --check src/panel.js && node test/engine.test.mjs && node test/chat-store.test.mjs && node test/panel.test.mjs"
   }
 }
